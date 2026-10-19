@@ -1,0 +1,4 @@
+# The vendor kinit opens these before BusyBox mounts/populates /dev.
+# name          type mode uid gid major minor start inc count
+/dev/console    c    600  0   0   5     1     -     -   -
+/dev/null       c    666  0   0   1     3     -     -   -

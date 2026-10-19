@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/lib/paperos/tailscale/tailscale --socket=/run/paperos/tailscaled.sock "$@"

@@ -1,0 +1,4 @@
+config BR2_PACKAGE_PAPEROS
+	bool "PaperOS native shell"
+	help
+	  Native grayscale framebuffer apps, evdev touch input and agent dashboard.

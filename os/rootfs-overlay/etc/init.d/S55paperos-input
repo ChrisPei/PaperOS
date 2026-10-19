@@ -1,0 +1,43 @@
+#!/bin/sh
+# paperos-input-service-v1
+PAPEROS_PIDFILE=/run/paperos-inputd.pid
+case "$1" in
+    start)
+        if [ -r "$PAPEROS_PIDFILE" ]; then
+            read -r PAPEROS_PID < "$PAPEROS_PIDFILE"
+            case "$PAPEROS_PID" in ''|*[!0-9]*) ;; *)
+                if [ "$(readlink "/proc/$PAPEROS_PID/exe")" = /usr/sbin/paperos-inputd ] && kill -0 "$PAPEROS_PID" 2>/dev/null; then exit 0; fi
+            esac
+        fi
+        set -a
+        [ ! -r /etc/paperos.env ] || . /etc/paperos.env
+        set +a
+        mkdir -p /run/paperos
+        /usr/sbin/paperos-inputd </dev/null >/var/log/paperos-inputd.log 2>&1 &
+        PAPEROS_PID=$!
+        printf '%s\n' "$PAPEROS_PID" > "$PAPEROS_PIDFILE"
+        PAPEROS_WAIT=0
+        while [ ! -S /run/paperos/input.sock ]; do
+            kill -0 "$PAPEROS_PID" 2>/dev/null || exit 1
+            PAPEROS_WAIT=$((PAPEROS_WAIT + 1))
+            [ "$PAPEROS_WAIT" -le 5 ] || exit 1
+            sleep 1
+        done
+        ;;
+    stop)
+        [ -r "$PAPEROS_PIDFILE" ] || exit 0
+        read -r PAPEROS_PID < "$PAPEROS_PIDFILE"
+        case "$PAPEROS_PID" in ''|*[!0-9]*) exit 1 ;; esac
+        [ "$(readlink "/proc/$PAPEROS_PID/exe")" = /usr/sbin/paperos-inputd ] || exit 0
+        kill "$PAPEROS_PID"
+        PAPEROS_WAIT=0
+        while kill -0 "$PAPEROS_PID" 2>/dev/null; do
+            PAPEROS_WAIT=$((PAPEROS_WAIT + 1))
+            [ "$PAPEROS_WAIT" -lt 5 ] || break
+            sleep 1
+        done
+        if [ "$(readlink "/proc/$PAPEROS_PID/exe")" = /usr/sbin/paperos-inputd ]; then kill -KILL "$PAPEROS_PID" 2>/dev/null || true; fi
+        rm -f "$PAPEROS_PIDFILE"
+        ;;
+    restart) "$0" stop; "$0" start ;;
+esac

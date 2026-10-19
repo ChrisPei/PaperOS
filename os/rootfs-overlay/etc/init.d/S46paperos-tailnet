@@ -1,0 +1,48 @@
+#!/bin/sh
+# Optional remote-home link. It neither replaces DNS nor changes kernel routes.
+umask 077
+PAPEROS_TS_ROOT=/usr/lib/paperos/tailscale
+PAPEROS_TS_STATE=/var/lib/paperos/tailscale
+PAPEROS_TS_SOCKET=/run/paperos/tailscaled.sock
+case "$1" in
+    start)
+        [ -f /etc/paperos/tailscale.enabled ] || exit 0
+        if [ ! -x "$PAPEROS_TS_ROOT/tailscaled" ]; then
+            [ -f /mnt/us/paperos/tailnet.ext3 ] || exit 1
+            [ -f /etc/paperos/tailscale-image.sha256 ] || exit 1
+            sha256sum -c /etc/paperos/tailscale-image.sha256 >/dev/null 2>&1 || exit 1
+            mkdir -p "$PAPEROS_TS_ROOT"
+            mount -o loop,ro,nosuid,nodev /mnt/us/paperos/tailnet.ext3 "$PAPEROS_TS_ROOT" || exit 1
+        fi
+        [ -x "$PAPEROS_TS_ROOT/tailscaled" ] || exit 1
+        if [ -r /run/paperos-tailscaled.pid ]; then
+            read -r PAPEROS_TS_PID < /run/paperos-tailscaled.pid
+            case "$PAPEROS_TS_PID" in ''|*[!0-9]*) ;; *)
+                if kill -0 "$PAPEROS_TS_PID" 2>/dev/null && [ "$(readlink /proc/$PAPEROS_TS_PID/exe)" = "$PAPEROS_TS_ROOT/tailscaled" ]; then exit 0; fi ;;
+            esac
+        fi
+        mkdir -p /run/paperos "$PAPEROS_TS_STATE"
+        chmod 700 "$PAPEROS_TS_STATE"
+        "$PAPEROS_TS_ROOT/tailscaled" --tun=userspace-networking \
+            --state="$PAPEROS_TS_STATE/state" --socket="$PAPEROS_TS_SOCKET" \
+            --outbound-http-proxy-listen=127.0.0.1:1055 \
+            </dev/null >/var/log/paperos-tailnet.log 2>&1 &
+        printf '%s\n' "$!" > /run/paperos-tailscaled.pid
+        ;;
+    stop)
+        [ -r /run/paperos-tailscaled.pid ] || exit 0
+        read -r PAPEROS_TS_PID < /run/paperos-tailscaled.pid
+        case "$PAPEROS_TS_PID" in ''|*[!0-9]*) exit 1 ;; esac
+        if [ "$(readlink /proc/$PAPEROS_TS_PID/exe)" = "$PAPEROS_TS_ROOT/tailscaled" ]; then
+            kill "$PAPEROS_TS_PID" || exit 1
+            PAPEROS_TS_WAIT=0
+            while [ "$(readlink /proc/$PAPEROS_TS_PID/exe)" = "$PAPEROS_TS_ROOT/tailscaled" ]; do
+                [ "$PAPEROS_TS_WAIT" -lt 20 ] || exit 1
+                sleep 0.25
+                PAPEROS_TS_WAIT=$((PAPEROS_TS_WAIT + 1))
+            done
+        fi
+        rm -f /run/paperos-tailscaled.pid
+        ;;
+    restart) "$0" stop && "$0" start ;;
+esac

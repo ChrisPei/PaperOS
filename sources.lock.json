@@ -1,0 +1,32 @@
+[
+  {
+    "name": "FBInk",
+    "url": "https://github.com/NiLuJe/FBInk.git",
+    "commit": "886f25f13368859ad8a899b88d04c26e19cda32e"
+  },
+  {
+    "name": "KindleTool",
+    "url": "https://github.com/NiLuJe/KindleTool.git",
+    "commit": "95291295e039a1a3bc0bc9d6040b07f640dae74a"
+  },
+  {
+    "name": "buildroot",
+    "url": "https://github.com/buildroot/buildroot.git",
+    "commit": "d5180309b1b66ef3b8eaccca70ad69be8e0729a1"
+  },
+  {
+    "name": "qemu-eink",
+    "url": "https://github.com/katadelos/qemu.git",
+    "commit": "b1a5347b628f13afe88454a096b5c3c78d84da5c"
+  },
+  {
+    "name": "eink-emulator",
+    "url": "https://github.com/katadelos/eink-emulator.git",
+    "commit": "6599bb52da300a893dbf0967a2f6e0bba0969fd7"
+  },
+  {
+    "name": "desmume2015",
+    "url": "https://github.com/libretro/desmume2015.git",
+    "commit": "422b688009ccb9f2917c086a8fe79c8cecb030ae"
+  }
+]

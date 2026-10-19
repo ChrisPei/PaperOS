@@ -1,0 +1,13 @@
+#!/bin/sh
+# Keep the existing application-package path available after pivot_root.
+# USB stays Ethernet: this filesystem contains the running root image.
+case "$1" in
+    start)
+        [ -d /boot/paperos-control/paperos ] || exit 0
+        mkdir -p /mnt/us || exit 1
+        if ! grep -q ' /mnt/us ' /proc/mounts; then
+            mount -o bind /boot/paperos-control /mnt/us || exit 1
+        fi
+        mkdir -p /mnt/us/paperos/packages
+        ;;
+esac

@@ -1,0 +1,14 @@
+#!/bin/sh
+# A direct USB link for recovery. The public key is supplied per device.
+case "$1" in
+    start)
+        [ ! -r /etc/paperos.env ] || . /etc/paperos.env
+        [ "${PAPEROS_EMULATOR:-0}" != 1 ] || [ "${PAPEROS_USB_EMULATOR:-0}" = 1 ] || exit 0
+        [ -s /root/.ssh/authorized_keys ] || exit 0
+        modprobe g_ether host_addr=02:50:41:50:45:01 dev_addr=02:50:41:50:45:02 iProduct=PaperOS-USB
+        ifconfig usb0 169.254.28.2 netmask 255.255.255.252 up
+        ;;
+    stop)
+        ifconfig usb0 down 2>/dev/null || true
+        ;;
+esac

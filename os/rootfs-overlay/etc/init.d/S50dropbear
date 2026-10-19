@@ -1,0 +1,14 @@
+#!/bin/sh
+# SSH starts only after a recovery public key is installed.
+case "$1" in
+    start)
+        if [ -s /root/.ssh/authorized_keys ] && [ -s /root/.ssh/server_host_key ]; then
+            # Password authentication is disabled at compile time; its flags
+            # are not present in this Dropbear build.
+            /usr/sbin/dropbear -r /root/.ssh/server_host_key -j -k -p 22
+        else
+            echo "PaperOS: SSH awaits a recovery public key" >&2
+        fi
+        ;;
+    stop) killall dropbear 2>/dev/null || true ;;
+esac

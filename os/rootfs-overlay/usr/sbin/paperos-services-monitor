@@ -1,0 +1,28 @@
+#!/bin/sh
+# Restart persisted timers after a background service failure.
+mkdir -p /run/paperos
+exec 8>/run/paperos/services-monitor.lock
+flock -n 8 || exit 0
+PAPEROS_STOP=0
+PAPEROS_CHILD=0
+paperos_stop() {
+    PAPEROS_STOP=1
+    if [ "$PAPEROS_CHILD" -gt 1 ] && [ "$(readlink "/proc/$PAPEROS_CHILD/exe")" = /usr/sbin/paperos-services ]; then
+        kill "$PAPEROS_CHILD" 2>/dev/null || true
+    fi
+}
+trap paperos_stop TERM INT
+while [ "$PAPEROS_STOP" = 0 ]; do
+    # Only the monitor owns this lock. Network daemons started by the service
+    # must not inherit it and prevent a later service restart after resume.
+    /usr/sbin/paperos-services 8>&- &
+    PAPEROS_CHILD=$!
+    printf '%s\n' "$PAPEROS_CHILD" > /run/paperos-services.pid
+    wait "$PAPEROS_CHILD"
+    if [ "$PAPEROS_STOP" = 1 ]; then
+        wait "$PAPEROS_CHILD" 2>/dev/null || true
+        break
+    fi
+    sleep 2
+done
+rm -f /run/paperos-services.pid

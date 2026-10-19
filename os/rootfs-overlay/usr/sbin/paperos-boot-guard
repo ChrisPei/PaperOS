@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+PAPEROS_CONTROL=/boot/paperos-control/paperos
+PAPEROS_WAIT=0
+while [ "$PAPEROS_WAIT" -lt 180 ]; do
+    if [ -f /run/paperos/boot-confirmed ]; then break; fi
+    if [ "$(cat "$PAPEROS_CONTROL/boot.mode" 2>/dev/null)" = automatic ] &&
+       [ -c /dev/fb0 ] && pidof paperos >/dev/null && pidof dropbear >/dev/null; then
+        sleep 3
+        pidof paperos >/dev/null && touch /run/paperos/boot-confirmed && break
+    fi
+    sleep 1
+    PAPEROS_WAIT=$((PAPEROS_WAIT + 1))
+done
+if [ -f /run/paperos/boot-confirmed ]; then
+    printf '%s\n' paperos-boot-v1 > "$PAPEROS_CONTROL/boot.enable.new"
+    sync
+    mv "$PAPEROS_CONTROL/boot.enable.new" "$PAPEROS_CONTROL/boot.enable"
+    sync
+    echo 'PaperOS boot confirmed; automatic boot re-armed.'
+else
+    echo 'PaperOS boot was not confirmed; rebooting to the retained system.'
+    sync
+    reboot
+fi

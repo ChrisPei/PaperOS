@@ -1,0 +1,9 @@
+#!/bin/sh
+# The bootstrap clears boot.enable before switching root. A failed boot therefore
+# returns to the retained stock init on the next hardware reboot.
+case "$1" in
+    start)
+        [ -d /boot/paperos-control/paperos ] || exit 0
+        /usr/sbin/paperos-boot-guard </dev/null >/var/log/paperos-boot.log 2>&1 &
+        ;;
+esac

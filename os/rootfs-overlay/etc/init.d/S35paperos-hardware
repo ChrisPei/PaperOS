@@ -1,0 +1,24 @@
+#!/bin/sh
+case "$1" in
+    start)
+        mkdir -p /var/lib/paperos /run/paperos
+        hwclock -s -u 2>/dev/null || true
+        [ ! -r /etc/paperos.env ] || . /etc/paperos.env
+        modprobe mxc_epdc_eink || true
+        if [ "${PAPEROS_EMULATOR:-0}" = 1 ]; then
+            modprobe mxc_epdc_fb builtin_firmware=y
+        elif [ -r /lib/firmware/imx/epdc_EANAB.fw ]; then
+            modprobe mxc_epdc_fb
+        else
+            echo 'PaperOS: real-panel waveform has not been provisioned.' >&2
+        fi
+        modprobe zforce2 bpbc=0 deviceType=1 || true
+        # Only load modules explicitly admitted for this device/kernel.
+        if [ -f /etc/paperos-modules ]; then
+            while IFS= read -r module; do
+                case "$module" in ''|'#'*) continue ;; esac
+                modprobe "$module" || echo "PaperOS: module unavailable: $module" >&2
+            done < /etc/paperos-modules
+        fi
+        ;;
+esac

@@ -1,0 +1,15 @@
+#!/bin/sh
+set -a
+[ ! -r /etc/paperos.env ] || . /etc/paperos.env
+set +a
+mkdir -p /var/lib/paperos
+if [ ! -e /dev/fb0 ]; then
+    echo "PaperOS: waiting for framebuffer; serial recovery shell remains available" >&2
+    sleep 10
+    exit 0
+fi
+/usr/bin/paperos
+status=$?
+echo "PaperOS shell exited ($status); retrying in 10 seconds" >&2
+sleep 10
+exit "$status"

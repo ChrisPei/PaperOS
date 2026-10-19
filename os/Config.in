@@ -1,0 +1,2 @@
+source "$BR2_EXTERNAL_PAPEROS_PATH/package/paperos/Config.in"
+source "$BR2_EXTERNAL_PAPEROS_PATH/package/paperos-drivers/Config.in"

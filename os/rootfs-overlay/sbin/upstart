@@ -1,0 +1,3 @@
+#!/bin/sh
+# Some stock KT3 kernel command lines name this init path.
+exec /sbin/init "$@"

@@ -1,0 +1,8 @@
+config BR2_PACKAGE_PAPEROS_DRIVERS
+	bool "KT3 matching reference display and touch drivers"
+	depends on BR2_arm
+	help
+	  Uses matching modules extracted from the public 5.16.2.1.1 reference
+	  firmware by scripts/import-kt3-drivers.py. Requires the matching
+	  3.10.53-lab126 kernel. Includes the proprietary EPDC companion;
+	  the resulting local image is not a source-only distribution.

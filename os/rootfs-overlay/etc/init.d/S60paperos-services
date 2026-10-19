@@ -1,0 +1,42 @@
+#!/bin/sh
+# PaperOS background timers, network control, weather and approved app reception.
+PAPEROS_PIDFILE=/run/paperos-services-monitor.pid
+case "$1" in
+    start)
+        if [ -r "$PAPEROS_PIDFILE" ]; then
+            read -r PAPEROS_PID < "$PAPEROS_PIDFILE"
+            case "$PAPEROS_PID" in ''|*[!0-9]*) ;; *)
+                if kill -0 "$PAPEROS_PID" 2>/dev/null && tr '\000' ' ' < "/proc/$PAPEROS_PID/cmdline" | grep -Fq /usr/sbin/paperos-services-monitor; then exit 0; fi ;;
+            esac
+        fi
+        set -a
+        [ ! -r /etc/paperos.env ] || . /etc/paperos.env
+        set +a
+        mkdir -p /run/paperos /var/lib/paperos/services
+        /usr/sbin/paperos-services-monitor </dev/null >/var/log/paperos-services.log 2>&1 &
+        PAPEROS_PID=$!
+        printf '%s\n' "$PAPEROS_PID" > "$PAPEROS_PIDFILE"
+        PAPEROS_WAIT=0
+        while [ ! -S /run/paperos/services.sock ]; do
+            kill -0 "$PAPEROS_PID" 2>/dev/null || exit 1
+            PAPEROS_WAIT=$((PAPEROS_WAIT + 1))
+            [ "$PAPEROS_WAIT" -lt 10 ] || exit 1
+            sleep 1
+        done
+        ;;
+    stop)
+        [ -r "$PAPEROS_PIDFILE" ] || exit 0
+        read -r PAPEROS_PID < "$PAPEROS_PIDFILE"
+        case "$PAPEROS_PID" in ''|*[!0-9]*) exit 1 ;; esac
+        kill -0 "$PAPEROS_PID" 2>/dev/null || exit 0
+        tr '\000' ' ' < "/proc/$PAPEROS_PID/cmdline" | grep -Fq /usr/sbin/paperos-services-monitor || exit 1
+        kill "$PAPEROS_PID"
+        PAPEROS_WAIT=0
+        while kill -0 "$PAPEROS_PID" 2>/dev/null; do
+            PAPEROS_WAIT=$((PAPEROS_WAIT + 1)); [ "$PAPEROS_WAIT" -lt 5 ] || break
+            sleep 1
+        done
+        rm -f "$PAPEROS_PIDFILE"
+        ;;
+    restart) "$0" stop; "$0" start ;;
+esac

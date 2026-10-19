@@ -1,0 +1,10 @@
+{
+  "domain": "paperos_export",
+  "name": "PaperOS Selected Metrics Export",
+  "version": "0.1.0",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "documentation": "https://www.home-assistant.io/docs/",
+  "codeowners": [],
+  "requirements": []
+}

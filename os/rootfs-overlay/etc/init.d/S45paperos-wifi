@@ -1,0 +1,57 @@
+#!/bin/sh
+# Start only when the owner has provisioned a private network configuration.
+PAPEROS_WIFI_CONF=${PAPEROS_WIFI_CONF:-/etc/paperos/wpa_supplicant.conf}
+case "$1" in
+    start)
+        [ ! -r /etc/paperos.env ] || . /etc/paperos.env
+        [ "${PAPEROS_EMULATOR:-0}" != 1 ] || exit 0
+        # Saved radio preferences apply before the background service starts.
+        PAPEROS_RADIO_STATE=/var/lib/paperos/services/state.json
+        if [ -r "$PAPEROS_RADIO_STATE" ]; then
+            if grep -Eq '^  "Airplane":[[:space:]]*true,?$|^  "WiFi":[[:space:]]*false,?$' "$PAPEROS_RADIO_STATE"; then
+                exit 0
+            fi
+        fi
+        [ -s "$PAPEROS_WIFI_CONF" ] || exit 0
+        chmod 600 "$PAPEROS_WIFI_CONF" || exit 1
+        modprobe dhd || exit 1
+        PAPEROS_WAIT=0
+        while [ ! -d /sys/class/net/wlan0 ]; do
+            # DHD initially calls the wireless link eth0. Check kernel attributes
+            # before renaming, so the USB recovery interface is never touched.
+            for PAPEROS_LINK in /sys/class/net/*; do
+                if [ -d "$PAPEROS_LINK/wireless" ] || [ -d "$PAPEROS_LINK/phy80211" ]; then
+                    PAPEROS_NAME=${PAPEROS_LINK##*/}
+                    if [ "$PAPEROS_NAME" != wlan0 ]; then
+                        ip link set dev "$PAPEROS_NAME" down || exit 1
+                        ip link set dev "$PAPEROS_NAME" name wlan0 || exit 1
+                    fi
+                fi
+            done
+            [ ! -d /sys/class/net/wlan0 ] || break
+            PAPEROS_WAIT=$((PAPEROS_WAIT + 1))
+            [ "$PAPEROS_WAIT" -le 20 ] || exit 1
+            sleep 1
+        done
+        mkdir -p /run/wpa_supplicant
+        ifconfig wlan0 up || exit 1
+        wpa_supplicant -B -i wlan0 -D nl80211 -c "$PAPEROS_WIFI_CONF" -P /run/paperos-wpa.pid || exit 1
+        udhcpc -b -i wlan0 -p /run/paperos-dhcp.pid
+        ;;
+    stop)
+        # Each pid must still belong to the expected executable.
+        for PAPEROS_PAIR in 'paperos-dhcp:udhcpc' 'paperos-wpa:wpa_supplicant'; do
+            PAPEROS_NAME=${PAPEROS_PAIR%:*}
+            PAPEROS_EXEC=${PAPEROS_PAIR#*:}
+            [ -r "/run/$PAPEROS_NAME.pid" ] || continue
+            read -r PAPEROS_PID < "/run/$PAPEROS_NAME.pid"
+            case "$PAPEROS_PID" in ''|*[!0-9]*) continue ;; esac
+            [ -r "/proc/$PAPEROS_PID/comm" ] || continue
+            read -r PAPEROS_COMM < "/proc/$PAPEROS_PID/comm"
+            [ "$PAPEROS_COMM" != "$PAPEROS_EXEC" ] || kill "$PAPEROS_PID"
+        done
+        ifconfig wlan0 down 2>/dev/null || true
+        sleep 1
+        rmmod dhd 2>/dev/null || true
+        ;;
+esac
