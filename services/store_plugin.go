@@ -80,7 +80,7 @@ func (s *Service) installStorePlugin(entry StoreEntry, payload string) error {
 			}
 		}
 	}
-	receipt := StoreReceipt{ID: entry.ID, Key: entry.Key, Name: entry.Name, Version: entry.Version, Kind: "koplugin", Directory: target, Source: entry.SourceName}
+	receipt := StoreReceipt{ID: entry.ID, Key: entry.Key, Name: entry.Name, Version: entry.Version, Kind: "koplugin", Directory: target, Source: entry.SourceName, Digest: entry.SHA256}
 	data, _ := json.Marshal(receipt)
 	if e = atomicWrite(filepath.Join(temporary, ".paperos-store.json"), data, 0600); e != nil {
 		return e

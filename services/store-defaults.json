@@ -1,3 +1,6 @@
 [
-  {"id":"paperos","name":"PaperOS 官方应用","url":"https://api.github.com/repos/ChrisPei/paperos-apps/contents/catalog.json","format":"paperos","public_key":"CgXy+esu043BN6ZwFFU7U0bBPAP4JyrUsx07tiuBLMY=","enabled":true}
+  {"id":"paperos","name":"PaperOS 官方应用","url":"https://api.github.com/repos/ChrisPei/paperos-apps/contents/catalog.json","format":"paperos","public_key":"CgXy+esu043BN6ZwFFU7U0bBPAP4JyrUsx07tiuBLMY=","enabled":true},
+  {"id":"zenpm","name":"ZenPM 社区商店","url":"https://repo.zen-labs.org/manifest.json","format":"zenpm","public_key":"9Fz6j8YEaqFbRcNDIHSsvkkKHmpmgcVxIDooiMsyNLQ=","enabled":true},
+  {"id":"koreader-contrib","name":"KOReader 社区插件","url":"https://api.github.com/repos/koreader/contrib/git/trees/main","format":"koreader-contrib","enabled":true},
+  {"id":"kpm","name":"KPM 官方源","url":"https://repo.kindlemodding.org/manifest.v2.json","format":"kpm","enabled":false}
 ]

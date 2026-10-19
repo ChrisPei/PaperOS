@@ -32,6 +32,7 @@ type StoreSource struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	URL       string `json:"url"`
+	BaseURL   string `json:"base_url,omitempty"`
 	Format    string `json:"format,omitempty"`
 	PublicKey string `json:"public_key,omitempty"`
 	Enabled   bool   `json:"enabled"`
@@ -244,12 +245,12 @@ func (s *Service) syncStoreInstalledLocked() {
 		}
 		found := false
 		for _, entry := range s.store.Entries {
-			if entry.ID == receipt.ID {
+			if entry.ID == receipt.ID && entry.Key == receipt.Key {
 				found = true
 				break
 			}
 		}
-		if !found && len(s.store.Entries) < 256 {
+		if !found && len(s.store.Entries) < storeMaxEntries-1 {
 			s.store.Entries = append(s.store.Entries, StoreEntry{Key: receipt.Key, ID: receipt.ID, Name: receipt.Name, Version: receipt.Version, Kind: "koplugin", Installed: receipt.Version, SourceID: "installed", SourceName: receipt.Source})
 			changed = true
 		}
@@ -257,15 +258,20 @@ func (s *Service) syncStoreInstalledLocked() {
 	for i := range s.store.Entries {
 		entry := &s.store.Entries[i]
 		version := versions[entry.ID]
+		origin := true
 		if receipt, ok := s.store.Receipts[entry.ID]; ok && receipt.Kind == "koplugin" {
+			origin = receipt.Key == entry.Key
+			version = ""
 			expected := s.storePluginDirectory(receipt.ID)
 			if expected == receipt.Directory {
 				if info, e := os.Stat(filepath.Join(expected, "main.lua")); e == nil && info.Mode().IsRegular() {
-					version = receipt.Version
+					if origin {
+						version = receipt.Version
+					}
 				}
 			}
 		}
-		update := version != "" && entry.Version != "最新发布" && storeVersionCompare(entry.Version, version) > 0 && entry.Reason == ""
+		update := origin && version != "" && !storeUnresolvedVersion(entry.Version) && storeVersionCompare(entry.Version, version) > 0 && entry.Reason == ""
 		if entry.Installed != version || entry.Update != update {
 			entry.Installed = version
 			entry.Update = update
@@ -290,18 +296,37 @@ func storeURL(value string, simulate bool) (*url.URL, error) {
 	return u, nil
 }
 func (s *Service) storeHTTPClient() *http.Client {
-	if s.storeClient != nil {
-		return s.storeClient
-	}
-	return &http.Client{Timeout: 20 * time.Minute, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 12 * time.Second, ResponseHeaderTimeout: 20 * time.Second}, CheckRedirect: func(r *http.Request, via []*http.Request) error {
-		if len(via) > 8 {
-			return errors.New("下载重定向过多")
+	s.storeClientOnce.Do(func() {
+		if s.storeClient != nil {
+			return
 		}
-		_, e := storeURL(r.URL.String(), s.simulate)
-		return e
-	}}
+		s.storeClient = &http.Client{Timeout: 20 * time.Minute, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 12 * time.Second, ResponseHeaderTimeout: 20 * time.Second, IdleConnTimeout: 60 * time.Second}, CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			if len(via) > 8 {
+				return errors.New("下载重定向过多")
+			}
+			_, e := storeURL(r.URL.String(), s.simulate)
+			return e
+		}}
+	})
+	return s.storeClient
 }
 func (s *Service) storeFetch(ctx context.Context, address string, limit int64) ([]byte, error) {
+	var last error
+	for _, candidate := range storeMetadataAddresses(address) {
+		attempt, cancel := context.WithTimeout(ctx, 25*time.Second)
+		data, err := s.storeFetchOnce(attempt, candidate, limit)
+		cancel()
+		if err == nil {
+			return data, nil
+		}
+		last = err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	return nil, last
+}
+func (s *Service) storeFetchOnce(ctx context.Context, address string, limit int64) ([]byte, error) {
 	if _, e := storeURL(address, s.simulate); e != nil {
 		return nil, e
 	}
@@ -343,10 +368,16 @@ func (s *Service) storeFetchSource(ctx context.Context, source StoreSource) ([]S
 		if e != nil {
 			return nil, e
 		}
-		raw, e := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sig)))
+		raw := sig
+		if len(raw) != ed25519.SignatureSize {
+			raw, e = base64.StdEncoding.DecodeString(strings.TrimSpace(string(sig)))
+		}
 		if e != nil || !ed25519.Verify(key, data, raw) {
 			return nil, errors.New("应用目录签名验证失败，保留旧目录")
 		}
+	}
+	if source.Format == "koreader-contrib" {
+		return s.fetchStoreContrib(ctx, source, data)
 	}
 	return parseStoreCatalog(data, source)
 }
@@ -371,11 +402,11 @@ func (s *Service) refreshStore() {
 		items, e := s.storeFetchSource(ctx, *source)
 		if e == nil {
 			for j := range items {
-				if items[j].Version != "最新发布" {
+				if !storeUnresolvedVersion(items[j].Version) || items[j].Reason != "" {
 					continue
 				}
 				for _, old := range previous {
-					if old.ID == items[j].ID && old.Installed != "" {
+					if old.Key == items[j].Key && old.Installed != "" {
 						if resolved, err := s.resolveStoreEntry(ctx, items[j]); err == nil {
 							items[j] = resolved
 						}
@@ -384,11 +415,15 @@ func (s *Service) refreshStore() {
 				}
 			}
 		}
+		if e == nil && len(entries)+len(items) > storeMaxEntries-64 {
+			e = errors.New("目录总量超过 960 项，请停用部分应用源后重试")
+			items = nil
+		}
 		if e != nil {
 			source.Error = clean(e.Error(), 120)
 			failures = append(failures, source.Name+": "+source.Error)
 			for _, old := range previous {
-				if old.SourceID == source.ID {
+				if old.SourceID == source.ID && len(entries)+len(items) < storeMaxEntries-64 {
 					items = append(items, old)
 				}
 			}
@@ -397,12 +432,13 @@ func (s *Service) refreshStore() {
 		}
 		entries = append(entries, items...)
 	}
-	if len(entries) > 256 {
-		entries = entries[:256]
+	order := map[string]int{}
+	for i, source := range sources {
+		order[source.ID] = i
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].SourceID != entries[j].SourceID {
-			return entries[i].SourceID < entries[j].SourceID
+			return order[entries[i].SourceID] < order[entries[j].SourceID]
 		}
 		return entries[i].Name < entries[j].Name
 	})
@@ -476,23 +512,35 @@ func (s *Service) storeCommandLocked(v url.Values) (bool, error) {
 		if s.store.Busy {
 			return fail("请等当前操作完成")
 		}
-		address := strings.TrimSpace(v.Get("url"))
-		u, e := storeURL(address, s.simulate)
-		if e != nil {
-			return true, e
+		var source StoreSource
+		var e error
+		if id := v.Get("preset"); id != "" {
+			var okay bool
+			source, okay = storePreset(id)
+			if !okay {
+				return fail("未知的社区应用源")
+			}
+			source.Enabled = true
+		} else {
+			source, e = storeSourceAddress(strings.TrimSpace(v.Get("url")), s.simulate)
+			if e != nil {
+				return true, e
+			}
 		}
 		if len(s.store.Sources) >= 8 {
 			return fail("最多添加 8 个应用源")
 		}
 		for _, src := range s.store.Sources {
-			if src.URL == address {
+			if src.URL == source.URL || (source.ID != "" && src.ID == source.ID) {
 				return fail("这个应用源已经存在")
 			}
 		}
-		sum := sha256.Sum256([]byte(address))
-		source := StoreSource{ID: "source-" + hex.EncodeToString(sum[:6]), Name: clean(v.Get("name"), 40), URL: address, Enabled: true}
-		if source.Name == "" {
-			source.Name = u.Hostname()
+		if source.ID == "" {
+			sum := sha256.Sum256([]byte(source.URL))
+			source.ID = "source-" + hex.EncodeToString(sum[:6])
+		}
+		if name := clean(v.Get("name"), 40); name != "" {
+			source.Name = name
 		}
 		s.store.Sources = append(s.store.Sources, source)
 		s.store.Message = "应用源已添加，点刷新获取目录"
@@ -655,6 +703,10 @@ func (s *Service) downloadStore(id string) {
 	err := func() error {
 		var e error
 		job.Entry, e = s.resolveStoreEntry(ctx, job.Entry)
+		if e != nil {
+			return e
+		}
+		job.Entry.URL, e = s.storeAssetURL(ctx, job.Entry.URL, job.Entry.SHA256)
 		if e != nil {
 			return e
 		}
@@ -888,7 +940,9 @@ func (s *Service) installStore(id string) {
 			}
 			return nil
 		}
-		return s.installStorePlugin(job.Entry, payload)
+		confirmedEntry := job.Entry
+		confirmedEntry.SHA256 = job.Digest
+		return s.installStorePlugin(confirmedEntry, payload)
 	}()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -951,11 +1005,30 @@ func (s *Service) publishStoreLocked(b *strings.Builder) {
 				}
 			}
 			if !found {
-				if len(entries) >= 256 {
-					entries = entries[:255]
+				if len(entries) >= storeMaxEntries {
+					entries = entries[:storeMaxEntries-1]
 				}
 				entries = append(entries, job.Entry)
 			}
+		}
+		for _, preset := range storePresets() {
+			added := false
+			for _, source := range store.Sources {
+				if source.ID == preset.ID || source.URL == preset.URL {
+					added = true
+				}
+			}
+			description := "社区包；安装前检查兼容性"
+			if preset.PublicKey != "" {
+				description = "Ed25519 签名目录"
+			}
+			if preset.ID == "koreader-contrib" {
+				description = "固定 Git 提交版本的 KOReader 插件"
+			}
+			if preset.ID == "kpm" {
+				description = "可浏览目录；原厂系统包需要移植"
+			}
+			fmt.Fprintf(&body, "preset\t%s\t%s\t%s\t%s\t%t\t%s\n", field(preset.ID), field(preset.Name), field(preset.URL), field(preset.Format), added, description)
 		}
 		for _, entry := range entries {
 			fmt.Fprintf(&body, "app\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%t\t%s\t%s\n", field(entry.Key), field(entry.ID), field(entry.Name), field(entry.Version), field(entry.Installed), field(entry.Kind), field(entry.SourceName), entry.Size, field(entry.Reason), field(entry.Description), entry.Update, field(entry.URL), field(entry.SHA256))

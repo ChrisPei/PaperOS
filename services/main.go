@@ -122,6 +122,7 @@ type Service struct {
 	tailnetSwitch             func(bool) error
 	store                     *StoreState
 	storeClient               *http.Client
+	storeClientOnce           sync.Once
 	storeInstaller            string
 }
 

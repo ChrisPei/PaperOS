@@ -54,7 +54,7 @@
 
 typedef enum { HOME, AGENTS, CLOCK, NOTES, SYSTEM, APP_LIBRARY, APP_DETAILS, INPUT_METHOD,
     SETTINGS, WIDGETS, ALARM, ALARM_EDIT, TIME_SET, CALENDAR, WEATHER, MIHOME, NETWORK, LOCK_SETTINGS,
-    WALLPAPERS, WALLPAPER_PREVIEW, WALLPAPER_FULLSCREEN, WEATHER_LOCATION, WEATHER_COORDINATES, POWER_SETTINGS, BATTERY, TAILNET, MUYU, NETWORK_PROFILE, STORE_DETAILS, STORE_SOURCES
+    WALLPAPERS, WALLPAPER_PREVIEW, WALLPAPER_FULLSCREEN, WEATHER_LOCATION, WEATHER_COORDINATES, POWER_SETTINGS, BATTERY, TAILNET, MUYU, NETWORK_PROFILE, STORE_DETAILS, STORE_SOURCES, STORE_COMMUNITY
 #ifdef PAPEROS_NDS
     ,NDS_GAME
 #endif
@@ -196,7 +196,7 @@ static void footer(App *a) {
         int icon_extent=i==1?28:30; /* Include the two-pixel outline. */
         dash_icon(i,center-icon_extent/2,748-icon_extent/2,28);
         text(center-text_width(labels[i],25)/2,769,25,labels[i],110,0);
-        bool active=i==0?a->screen==HOME:i==1?(a->screen==APP_LIBRARY || a->screen==APP_DETAILS || a->screen==STORE_DETAILS || a->screen==STORE_SOURCES):a->screen==SETTINGS;
+        bool active=i==0?a->screen==HOME:i==1?(a->screen==APP_LIBRARY || a->screen==APP_DETAILS || a->screen==STORE_DETAILS || a->screen==STORE_SOURCES || a->screen==STORE_COMMUNITY):a->screen==SETTINGS;
         if(active) rect(center-48,795,96,3,0);
     }
 }
@@ -464,6 +464,7 @@ static void draw(App *a) {
         case NETWORK_PROFILE: dash_network_profile(a); break;
         case STORE_DETAILS: store_details(a); break;
         case STORE_SOURCES: store_sources(a); break;
+        case STORE_COMMUNITY: store_community(a); break;
         case NETWORK: dash_network(a); break;
         case LOCK_SETTINGS: dash_lock_settings(a); break;
         case WALLPAPERS: dash_wallpapers(a); break;

@@ -111,6 +111,14 @@ func parseStoreCatalog(data []byte, source StoreSource) ([]StoreEntry, error) {
 				}
 			}
 			if best != nil {
+				// A CPU match alone does not make Lab126 installers usable here.
+				if best.Reason == "" && !storeHasPlatform(best.Platforms, "paperos") && !storeHasPlatform(best.Platforms, "koreader") {
+					best.Reason = "原厂 KPM 包依赖 Kindle 服务或安装脚本，需要移植到 PaperOS"
+				}
+				if storeHasPlatform(best.Platforms, "koreader") {
+					best.Kind = "koplugin"
+					best.ID = "koplugin." + storeSlug(best.ID)
+				}
 				entries = append(entries, *best)
 			}
 		}
@@ -125,6 +133,9 @@ func parseStoreCatalog(data []byte, source StoreSource) ([]StoreEntry, error) {
 			_ = json.Unmarshal(row["platforms"], &platforms)
 			id := storeString(row, "id")
 			kind := storeString(row, "kind")
+			if kind != "papp" {
+				id = storeSlug(id)
+			}
 			if kind == "" {
 				kind = "auto"
 				for _, p := range platforms {
@@ -134,11 +145,31 @@ func parseStoreCatalog(data []byte, source StoreSource) ([]StoreEntry, error) {
 				}
 			}
 			entry := StoreEntry{ID: id, Name: storeString(row, "name"), Description: storeString(row, "description"), Version: storeString(row, "version"), Kind: kind, URL: storeString(row, "download_url"), VersionsURL: storeString(row, "versions_url"), Homepage: storeString(row, "source"), SHA256: storeString(row, "sha256"), Platforms: platforms, Reason: storePlatformReason(platforms)}
+			if entry.Kind == "koplugin" {
+				category, location := storeString(row, "category"), entry.VersionsURL
+				switch {
+				case strings.Contains(location, ".kopatch/") || category == "patches":
+					entry.Kind = "kopatch"
+					entry.Reason = "KOReader 用户补丁尚未接入，请使用阅读器内的插件商店"
+				case strings.Contains(location, ".iconpack/") || category == "iconpacks":
+					entry.Kind = "iconpack"
+					entry.Reason = "此图标包的安装方式需要单独适配"
+				case strings.Contains(location, "/fonts/") || category == "fonts":
+					entry.Kind = "font"
+					entry.Reason = "字体包的安装方式需要单独适配"
+				}
+			}
+			if entry.Kind == "auto" && storeHasPlatform(platforms, "kindle") && !storeHasPlatform(platforms, "paperos") {
+				entry.Reason = "此应用依赖原厂 Kindle 服务或安装脚本，需要移植到 PaperOS"
+			}
 			if entry.Version == "" {
 				entry.Version = "最新发布"
 			}
-			if entry.Kind == "koplugin" && !strings.HasPrefix(entry.ID, "koplugin.") {
-				entry.ID = "koplugin." + storeSlug(entry.ID)
+			if entry.Kind != "auto" && entry.Kind != "papp" && !strings.HasPrefix(entry.ID, entry.Kind+".") {
+				entry.ID = entry.Kind + "." + storeSlug(entry.ID)
+			}
+			if entry.URL == "" && entry.Kind == "koplugin" {
+				entry.URL = entry.Homepage
 			}
 			if entry.URL == "" && entry.VersionsURL == "" {
 				entry.Reason = "应用源只提供安装脚本，尚未适配 PaperOS"
@@ -173,17 +204,17 @@ func normalizeStoreEntries(entries []StoreEntry, source StoreSource) ([]StoreEnt
 		if e.Kind == "" {
 			e.Kind = "auto"
 		}
-		if e.Kind != "papp" && e.Kind != "koplugin" && e.Kind != "auto" {
+		if e.Kind != "papp" && e.Kind != "koplugin" && e.Kind != "auto" && e.Reason == "" {
 			e.Reason = "这个条目不属于 PaperOS 应用或 KOReader 插件"
 		}
 		if e.Reason == "" {
 			e.Reason = storePlatformReason(e.Platforms)
 		}
 		if e.URL != "" {
-			e.URL = storeResolveURL(source.URL, e.URL)
+			e.URL = storeResolveURL(storeSourceBase(source), e.URL)
 		}
 		if e.VersionsURL != "" {
-			e.VersionsURL = storeResolveURL(source.URL, e.VersionsURL)
+			e.VersionsURL = storeResolveURL(storeSourceBase(source), e.VersionsURL)
 		}
 		if e.SHA256 != "" {
 			e.SHA256 = strings.TrimPrefix(e.SHA256, "sha256:")
@@ -217,6 +248,9 @@ type storeRelease struct {
 }
 
 func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (StoreEntry, error) {
+	if entry.Reason != "" {
+		return entry, errors.New(entry.Reason)
+	}
 	if entry.VersionsURL != "" {
 		data, e := s.storeFetch(ctx, entry.VersionsURL, 1<<20)
 		if e != nil {
@@ -246,7 +280,10 @@ func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (Stor
 				}
 			}
 		}
-		return entry, errors.New("应用源没有可用的 ARM soft-float 安装包")
+		if entry.Kind != "koplugin" || entry.Homepage == "" {
+			return entry, errors.New("应用源没有可用的 ARM soft-float 安装包")
+		}
+		entry.URL, entry.VersionsURL, entry.Version = entry.Homepage, "", "source"
 	}
 	u, e := url.Parse(entry.URL)
 	if e != nil {
@@ -263,11 +300,14 @@ func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (Stor
 					sort.SliceStable(release.Assets, func(i, j int) bool { return release.Assets[i].Name < release.Assets[j].Name })
 					for _, a := range release.Assets {
 						lower := strings.ToLower(a.Name)
-						if strings.Contains(lower, "source") || strings.Contains(lower, "android") || strings.Contains(lower, "armhf") || strings.Contains(lower, "macos") || strings.Contains(lower, "windows") {
+						if strings.Contains(lower, "source") || strings.Contains(lower, "android") || strings.Contains(lower, "armhf") || strings.Contains(lower, "kindlehf") || strings.Contains(lower, "aarch64") || strings.Contains(lower, "macos") || strings.Contains(lower, "windows") {
 							continue
 						}
 						if strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".tar.gz") {
-							entry.URL = a.BrowserURL
+							entry.URL = a.URL
+							if entry.URL == "" {
+								entry.URL = a.BrowserURL
+							}
 							entry.Version = release.Tag
 							entry.Size = a.Size
 							entry.SHA256 = strings.TrimPrefix(a.Digest, "sha256:")
