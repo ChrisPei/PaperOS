@@ -47,24 +47,35 @@ static int store_rows(App *a,int *rows){
         for(int j=0;j<count;j++)if(rows[j]>=0&&!strcmp(a->store.catalog.entries[rows[j]].id,e->id))duplicate=true;
         if(!duplicate)rows[count++]=i;
     }
+    if(a->store.tab!=1)for(int i=1;i<count;i++){int row=rows[i],j=i;while(j>0&&paperos_store_compare(&a->store.catalog.entries[row],&a->store.catalog.entries[rows[j-1]],a->store.catalog.sort_mode)<0){rows[j]=rows[j-1];j--;}rows[j]=row;}
     return count;
+}
+static const char *store_category(PaperOSStoreEntry *e){
+    if(!strcmp(e->category,"utility"))return "工具";
+    if(!strcmp(e->category,"media"))return "阅读";
+    if(!strcmp(e->category,"theme"))return "界面";
+    if(!strcmp(e->category,"reference"))return "参考";
+    if(!strcmp(e->category,"productivity"))return "效率";
+    if(!strcmp(e->category,"games"))return "游戏";
+    return store_kind(e);
 }
 static void store_library(App *a){
     store_tick(a);PaperOSStoreUI *u=&a->store;PaperOSServices *s=&a->ui.services;
     const char *message=a->ui.message[0]?a->ui.message:s->store_message;
     header(a,"应用商店","");
-    const char *filter=store_filter_name(a);button(30,101,247,33,filter,false);button(292,101,158,33,u->show_incompatible?"全部类型":"可安装",!u->show_incompatible);
-    button(465,101,105,33,u->query[0]?"清除搜索":"搜索",false);
+    const char *filter=store_filter_name(a);const char *sorts[]={"热门榜","最近更新","名称排序"};button(30,101,210,33,filter,false);button(250,101,100,33,sorts[u->catalog.sort_mode],false);button(360,101,100,33,u->show_incompatible?"全部类型":"可安装",!u->show_incompatible);
+    button(470,101,100,33,u->query[0]?"清除":"搜索",false);
     const char *tabs[]={"发现","已安装","更新"};
     for(int i=0;i<3;i++)button(30+183*i,166,174,48,tabs[i],u->tab==i);
     int rows[PAPEROS_STORE_MAX+PAPEROS_MAX_APPS],count=store_rows(a,rows);
     if(u->page*4>=count)u->page=0;
     for(int row=0;row<4&&u->page*4+row<count;row++){
-        int index=rows[u->page*4+row],y=235+91*row;char subtitle[320];
-        const char *name;
-        if(index<0){PaperOSApp *p=&a->apps[-index-1];name=p->name;snprintf(subtitle,sizeof(subtitle),"%s  ·  PaperOS 应用",p->version);}
-        else{PaperOSStoreEntry *e=&u->catalog.entries[index];name=e->name;snprintf(subtitle,sizeof(subtitle),"%.24s · %s%s",e->version,store_kind(e),e->reason[0]?" · 需适配":e->update?" · 可更新":e->installed[0]?" · 已安装":"");}
-        box(30,y,540,80,170);text(47,y+9,27,name,504,0);text(47,y+46,18,subtitle,504,65);
+        int index=rows[u->page*4+row],y=235+91*row;char subtitle[320],name[180];const char *description;
+        if(index<0){PaperOSApp *p=&a->apps[-index-1];copy_text(name,sizeof(name),p->name);description=p->description;snprintf(subtitle,sizeof(subtitle),"%s  ·  PaperOS 应用",p->version);}
+        else{PaperOSStoreEntry *e=&u->catalog.entries[index];char stars[40];if(e->stars>=0)snprintf(stars,sizeof(stars),"★ %ld",e->stars);else copy_text(stars,sizeof(stars),"星标未提供");
+            if(u->tab!=1&&u->catalog.sort_mode==0&&e->stars>=0)snprintf(name,sizeof(name),"%d  %s",u->page*4+row+1,e->name);else copy_text(name,sizeof(name),e->name);description=e->description;
+            snprintf(subtitle,sizeof(subtitle),"%s · %s · %s%s",stars,store_category(e),e->updated[0]?e->updated:"更新未提供",e->reason[0]?" · 需适配":e->update?" · 可更新":e->installed[0]?" · 已安装":"");}
+        box(30,y,540,80,170);text(47,y+7,25,name,504,0);text(47,y+35,17,description,504,55);text(47,y+58,16,subtitle,504,55);
     }
     if(!count){
         const char *empty=u->query[0]?"没有匹配的应用":u->tab==2?"已是最新版本":u->tab==1?"还没有安装应用":"暂时没有在线应用目录";
@@ -73,12 +84,14 @@ static void store_library(App *a){
     text(30,592,16,u->query[0]?u->query:message,540,65);
     button(30,616,102,34,"应用源",false);button(143,616,116,34,"下载链接",false);button(270,616,124,34,"本地包",false);button(435,616,135,34,s->store_busy?"处理中":"刷新",false);
     button(30,665,110,40,"上页",false);button(460,665,110,40,"下页",false);
-    char page[64];snprintf(page,sizeof(page),"%d / %d  ·  %d 款",u->page+1,count?(count+3)/4:1,count);text(300-text_width(page,21)/2,675,21,page,300,60);
+    char page[96];snprintf(page,sizeof(page),"%d / %d  ·  %d 款",u->page+1,count?(count+3)/4:1,count);text(300-text_width(page,21)/2,675,21,page,300,60);
 }
 static void store_details(App *a){
     store_tick(a);PaperOSStoreEntry *e=store_selected(a);PaperOSServices *s=&a->ui.services;
     if(!e){header(a,"下载链接","");text(30,183,24,s->store_message,540,0);button(30,660,540,42,"返回应用商店",false);return;}
     header(a,e->name,e->version);text(30,174,24,e->description,540,25);
+    char stats[256],stars[48];if(e->stars>=0)snprintf(stars,sizeof(stars),"GitHub 项目星标 %ld",e->stars);else copy_text(stars,sizeof(stars),"项目星标未提供");snprintf(stats,sizeof(stats),"%s · 更新 %s",stars,e->updated[0]?e->updated:"未提供");text(30,207,19,stats,540,60);
+    snprintf(stats,sizeof(stats),"星标来源：%s",e->stats_source[0]?e->stats_source:"此源未提供统计");text(30,233,16,stats,540,65);
     char b[320];snprintf(b,sizeof(b),"应用源：%s",e->source);text(30,254,21,b,540,60);
     snprintf(b,sizeof(b),"%s  ·  %s%s",store_kind(e),e->installed[0]?"已安装 ":"尚未安装",e->installed);text(30,297,21,b,540,60);
     text(30,346,21,e->reason[0]?e->reason:!strcmp(e->kind,"koplugin")?"在 KOReader 内使用；安装后重新打开阅读器。":"安装和更新会保留已有的个人数据。",540,50);
@@ -119,7 +132,7 @@ static bool store_tap(App *a,int x,int y){
     PaperOSStoreUI *u=&a->store;PaperOSServices *s=&a->ui.services;
     if(a->screen==APP_LIBRARY&&!a->show_packages){
         store_tick(a);
-        if(y>=101&&y<136){if(x>=465){if(u->query[0]){u->query[0]=0;u->page=0;}else a->ui.input_task=10;}else if(x>=30&&x<277)store_filter_next(a);else if(x>=292&&x<450){u->show_incompatible=!u->show_incompatible;u->page=0;}}
+        if(y>=101&&y<136){if(x>=470){if(u->query[0]){u->query[0]=0;u->page=0;}else a->ui.input_task=10;}else if(x>=30&&x<240)store_filter_next(a);else if(x>=250&&x<350){const char *modes[]={"popular","recent","name"};const char *args[]={"mode",modes[(u->catalog.sort_mode+1)%3],NULL};dash_command(a,"store-sort",args);u->page=0;}else if(x>=360&&x<460){u->show_incompatible=!u->show_incompatible;u->page=0;}}
         else if(y>=166&&y<214&&x>=30&&x<570){u->tab=(x-30)/183;if(u->tab>2)u->tab=2;u->page=0;a->ui.message[0]=0;reload_apps(a);dash_command(a,"store-sync",NULL);}
         else if(y>=235&&y<599&&(y-235)%91<80&&x>=30&&x<570){
             int rows[PAPEROS_STORE_MAX+PAPEROS_MAX_APPS],count=store_rows(a,rows),index=u->page*4+(y-235)/91;

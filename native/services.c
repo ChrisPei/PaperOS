@@ -160,15 +160,18 @@ bool paperos_store_read(PaperOSStoreCatalog *catalog,const char *path,unsigned l
     if(!fgets(line,sizeof(line),f)||sscanf(line,"paperos-store-v1\t%lu",&actual)!=1||actual!=revision)goto end;
     int lines=0;
     while(fgets(line,sizeof(line),f)){
-        size_t len=strlen(line);if(!len||line[len-1]!='\n'||++lines>PAPEROS_STORE_MAX+16)goto end;line[len-1]=0;
-        char *v[15];int n=split(line,v,15);
-        if(n==7&&((!strcmp(v[0],"source")&&next->source_count<8)||(!strcmp(v[0],"preset")&&next->preset_count<8))){
+        size_t len=strlen(line);if(!len||line[len-1]!='\n'||++lines>PAPEROS_STORE_MAX+17)goto end;line[len-1]=0;
+        char *v[20];int n=split(line,v,20);
+        if(n==2&&!strcmp(v[0],"sort")){if(!strcmp(v[1],"recent"))next->sort_mode=1;else if(!strcmp(v[1],"name"))next->sort_mode=2;}
+        else if(n==7&&((!strcmp(v[0],"source")&&next->source_count<8)||(!strcmp(v[0],"preset")&&next->preset_count<8))){
             PaperOSStoreSource *p=!strcmp(v[0],"source")?&next->sources[next->source_count++]:&next->presets[next->preset_count++];
             put(p->id,sizeof(p->id),v[1]);put(p->name,sizeof(p->name),v[2]);put(p->url,sizeof(p->url),v[3]);put(p->format,sizeof(p->format),v[4]);p->enabled=!strcmp(v[5],"true");put(p->error,sizeof(p->error),v[6]);
-        }else if(n==14&&!strcmp(v[0],"app")&&next->count<PAPEROS_STORE_MAX){
+        }else if((n==14||n==18)&&!strcmp(v[0],"app")&&next->count<PAPEROS_STORE_MAX){
             PaperOSStoreEntry *p=&next->entries[next->count++];
             put(p->key,sizeof(p->key),v[1]);put(p->id,sizeof(p->id),v[2]);put(p->name,sizeof(p->name),v[3]);put(p->version,sizeof(p->version),v[4]);put(p->installed,sizeof(p->installed),v[5]);put(p->kind,sizeof(p->kind),v[6]);put(p->source,sizeof(p->source),v[7]);put(p->size,sizeof(p->size),v[8]);put(p->reason,sizeof(p->reason),v[9]);put(p->description,sizeof(p->description),v[10]);p->update=!strcmp(v[11],"true");put(p->url,sizeof(p->url),v[12]);put(p->sha256,sizeof(p->sha256),v[13]);
             const char *separator=strchr(p->key,':');if(separator){size_t length=(size_t)(separator-p->key);if(length>=sizeof(p->source_id))goto end;memcpy(p->source_id,p->key,length);p->source_id[length]=0;}
+            p->stars=-1;
+            if(n==18){char *end;long stars=strtol(v[14],&end,10);if(end!=v[14]&&!*end&&stars>=0&&stars<=1000000000)p->stars=stars;put(p->updated,sizeof(p->updated),v[15]);put(p->category,sizeof(p->category),v[16]);put(p->stats_source,sizeof(p->stats_source),v[17]);}
         }else goto end;
     }
     okay=!ferror(f);if(okay){next->revision=revision;next->available=true;*catalog=*next;}

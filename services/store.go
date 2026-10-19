@@ -54,6 +54,11 @@ type StoreEntry struct {
 	Platforms   []string `json:"platforms,omitempty"`
 	VersionsURL string   `json:"versions_url,omitempty"`
 	Homepage    string   `json:"homepage,omitempty"`
+	Stars       *int64   `json:"stars,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+	Category    string   `json:"category,omitempty"`
+	StatsSource string   `json:"stats_source,omitempty"`
+	AssetName   string   `json:"asset_name,omitempty"`
 	Installed   string   `json:"-"`
 	Update      bool     `json:"-"`
 }
@@ -83,6 +88,7 @@ type StoreJob struct {
 }
 type StoreState struct {
 	Sources     []StoreSource           `json:"sources"`
+	SortMode    string                  `json:"sort_mode,omitempty"`
 	Entries     []StoreEntry            `json:"entries"`
 	Receipts    map[string]StoreReceipt `json:"receipts"`
 	Refreshed   int64                   `json:"refreshed"`
@@ -122,6 +128,9 @@ func (s *Service) loadStore() {
 	}
 	if !loaded {
 		_ = json.Unmarshal(defaultStoreSources, &s.store.Sources)
+	}
+	if !storeSortValid(s.store.SortMode) {
+		s.store.SortMode = "popular"
 	}
 	for i := range s.store.Sources {
 		source := &s.store.Sources[i]
@@ -433,6 +442,7 @@ func (s *Service) refreshStore() {
 		entries = append(entries, items...)
 	}
 	order := map[string]int{}
+	storeEnrichStats(entries, sources)
 	for i, source := range sources {
 		order[source.ID] = i
 	}
@@ -495,6 +505,14 @@ func (s *Service) storeCommandLocked(v url.Values) (bool, error) {
 	}
 	fail := func(msg string) (bool, error) { return true, errors.New(msg) }
 	switch name {
+	case "store-sort":
+		mode := v.Get("mode")
+		if !storeSortValid(mode) {
+			return fail("不支持这种排序方式")
+		}
+		s.store.SortMode = mode
+		s.storeChangedLocked()
+		return true, s.saveStoreLocked()
 	case "store-sync":
 		s.syncStoreInstalledLocked()
 		return true, nil
@@ -993,6 +1011,7 @@ func (s *Service) publishStoreLocked(b *strings.Builder) {
 	if store.Published != store.Revision {
 		var body strings.Builder
 		fmt.Fprintf(&body, "paperos-store-v1\t%d\n", store.Revision)
+		fmt.Fprintf(&body, "sort\t%s\n", field(store.SortMode))
 		for _, source := range store.Sources {
 			fmt.Fprintf(&body, "source\t%s\t%s\t%s\t%s\t%t\t%s\n", field(source.ID), field(source.Name), field(source.URL), field(source.Format), source.Enabled, field(source.Error))
 		}
@@ -1031,7 +1050,11 @@ func (s *Service) publishStoreLocked(b *strings.Builder) {
 			fmt.Fprintf(&body, "preset\t%s\t%s\t%s\t%s\t%t\t%s\n", field(preset.ID), field(preset.Name), field(preset.URL), field(preset.Format), added, description)
 		}
 		for _, entry := range entries {
-			fmt.Fprintf(&body, "app\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%t\t%s\t%s\n", field(entry.Key), field(entry.ID), field(entry.Name), field(entry.Version), field(entry.Installed), field(entry.Kind), field(entry.SourceName), entry.Size, field(entry.Reason), field(entry.Description), entry.Update, field(entry.URL), field(entry.SHA256))
+			stars := int64(-1)
+			if entry.Stars != nil {
+				stars = *entry.Stars
+			}
+			fmt.Fprintf(&body, "app\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%t\t%s\t%s\t%d\t%s\t%s\t%s\n", field(entry.Key), field(entry.ID), field(entry.Name), field(entry.Version), field(entry.Installed), field(entry.Kind), field(entry.SourceName), entry.Size, field(entry.Reason), field(entry.Description), entry.Update, field(entry.URL), field(entry.SHA256), stars, field(entry.UpdatedAt), field(entry.Category), field(entry.StatsSource))
 		}
 		if atomicWrite(catalog, []byte(body.String()), 0644) == nil {
 			store.Published = store.Revision

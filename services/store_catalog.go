@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func storeResolveURL(base, reference string) string {
@@ -145,6 +146,22 @@ func parseStoreCatalog(data []byte, source StoreSource) ([]StoreEntry, error) {
 				}
 			}
 			entry := StoreEntry{ID: id, Name: storeString(row, "name"), Description: storeString(row, "description"), Version: storeString(row, "version"), Kind: kind, URL: storeString(row, "download_url"), VersionsURL: storeString(row, "versions_url"), Homepage: storeString(row, "source"), SHA256: storeString(row, "sha256"), Platforms: platforms, Reason: storePlatformReason(platforms)}
+			entry.Stars = storeStarsJSON(row["stars"])
+			entry.UpdatedAt = storeString(row, "published_at") // ZenPM updated_at is the scrape time.
+			entry.Category = storeString(row, "category")
+			entry.AssetName = storeString(row, "source_asset")
+			if entry.AssetName == "" && entry.Kind == "koplugin" {
+				var assets []struct {
+					Name string `json:"asset"`
+				}
+				_ = json.Unmarshal(row["assets"], &assets)
+				for _, asset := range assets {
+					if strings.Contains(strings.ToLower(asset.Name), ".koplugin") {
+						entry.AssetName = asset.Name
+						break
+					}
+				}
+			}
 			if entry.Kind == "koplugin" {
 				category, location := storeString(row, "category"), entry.VersionsURL
 				switch {
@@ -201,6 +218,17 @@ func normalizeStoreEntries(entries []StoreEntry, source StoreSource) ([]StoreEnt
 		e.Description = clean(e.Description, 160)
 		e.Version = clean(e.Version, 31)
 		e.Reason = clean(e.Reason, 120)
+		e.Category = clean(e.Category, 31)
+		e.AssetName = clean(e.AssetName, 200)
+		e.UpdatedAt = storeDate(e.UpdatedAt)
+		if e.Stars != nil && (*e.Stars < 0 || *e.Stars > 1000000000) {
+			e.Stars = nil
+		}
+		if e.Stars != nil {
+			e.StatsSource = clean(source.Name, 40)
+		} else {
+			e.StatsSource = ""
+		}
 		if e.Kind == "" {
 			e.Kind = "auto"
 		}
@@ -242,9 +270,10 @@ type storeReleaseAsset struct {
 	Digest     string `json:"digest"`
 }
 type storeRelease struct {
-	Tag        string              `json:"tag_name"`
-	Prerelease bool                `json:"prerelease"`
-	Assets     []storeReleaseAsset `json:"assets"`
+	Tag         string              `json:"tag_name"`
+	Prerelease  bool                `json:"prerelease"`
+	Assets      []storeReleaseAsset `json:"assets"`
+	PublishedAt string              `json:"published_at"`
 }
 
 func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (StoreEntry, error) {
@@ -266,12 +295,17 @@ func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (Stor
 			if release.Prerelease {
 				continue
 			}
-			for _, a := range release.Assets {
+			for _, a := range storePreferredAssets(entry, release.Assets) {
 				lower := strings.ToLower(a.Name)
 				if strings.Contains(lower, "armhf") || strings.Contains(lower, "kindlehf") || strings.Contains(lower, "aarch64") || strings.Contains(lower, "android") || strings.Contains(lower, "macos") {
 					continue
 				}
 				if strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".kpkg") {
+					if release.PublishedAt != "" {
+						entry.UpdatedAt = storeDate(release.PublishedAt)
+					} else if storeVersionCompare(entry.Version, release.Tag) != 0 {
+						entry.UpdatedAt = ""
+					}
 					entry.Version = release.Tag
 					entry.URL = storeResolveURL(entry.VersionsURL, a.URL)
 					entry.Size = a.Size
@@ -298,7 +332,7 @@ func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (Stor
 				var release storeRelease
 				if json.Unmarshal(data, &release) == nil {
 					sort.SliceStable(release.Assets, func(i, j int) bool { return release.Assets[i].Name < release.Assets[j].Name })
-					for _, a := range release.Assets {
+					for _, a := range storePreferredAssets(entry, release.Assets) {
 						lower := strings.ToLower(a.Name)
 						if strings.Contains(lower, "source") || strings.Contains(lower, "android") || strings.Contains(lower, "armhf") || strings.Contains(lower, "kindlehf") || strings.Contains(lower, "aarch64") || strings.Contains(lower, "macos") || strings.Contains(lower, "windows") {
 							continue
@@ -309,6 +343,7 @@ func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (Stor
 								entry.URL = a.BrowserURL
 							}
 							entry.Version = release.Tag
+							entry.UpdatedAt = storeDate(release.PublishedAt)
 							entry.Size = a.Size
 							entry.SHA256 = strings.TrimPrefix(a.Digest, "sha256:")
 							return entry, nil
@@ -322,13 +357,19 @@ func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (Stor
 				return entry, err
 			}
 			var commits []struct {
-				SHA string `json:"sha"`
+				SHA    string `json:"sha"`
+				Commit struct {
+					Committer struct {
+						Date string `json:"date"`
+					} `json:"committer"`
+				} `json:"commit"`
 			}
 			if json.Unmarshal(data, &commits) != nil || len(commits) == 0 || len(commits[0].SHA) != 40 {
 				return entry, errors.New("无法确定 GitHub 源码版本")
 			}
 			entry.URL = "https://api.github.com/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/zipball/" + commits[0].SHA
 			entry.Version = "git:" + commits[0].SHA[:12]
+			entry.UpdatedAt = storeDate(commits[0].Commit.Committer.Date)
 			if entry.Name == "下载链接" {
 				entry.Name = repo
 			}
@@ -342,4 +383,50 @@ func (s *Service) resolveStoreEntry(ctx context.Context, entry StoreEntry) (Stor
 		entry.Name = path.Base(u.Path)
 	}
 	return entry, nil
+}
+
+func storeDate(value string) string {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02"} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t.In(china).Format("2006-01-02")
+		}
+	}
+	return ""
+}
+
+func storeStarsJSON(raw json.RawMessage) *int64 {
+	var number int64
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	if json.Unmarshal(raw, &number) != nil {
+		var text string
+		if json.Unmarshal(raw, &text) != nil {
+			return nil
+		}
+		var err error
+		number, err = strconv.ParseInt(text, 10, 64)
+		if err != nil {
+			return nil
+		}
+	}
+	if number < 0 || number > 1000000000 {
+		return nil
+	}
+	return &number
+}
+
+func storePreferredAssets(entry StoreEntry, assets []storeReleaseAsset) []storeReleaseAsset {
+	ordered := append([]storeReleaseAsset(nil), assets...)
+	score := func(name string) int {
+		if entry.AssetName != "" && name == entry.AssetName {
+			return 2
+		}
+		if entry.Kind == "koplugin" && strings.Contains(strings.ToLower(name), ".koplugin") {
+			return 1
+		}
+		return 0
+	}
+	sort.SliceStable(ordered, func(i, j int) bool { return score(ordered[i].Name) > score(ordered[j].Name) })
+	return ordered
 }

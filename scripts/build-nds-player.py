@@ -21,7 +21,7 @@ def main():
     if not fbink.exists():
         raise SystemExit('Build the existing native FBInk dependency first: scripts/build-native.sh')
     include=probe.SOURCE/'desmume/src/libretro-common/include'
-    units=['paperos.c','apps.c','ime.c','input.c','keyboard.c','services.c','calendar.c','nds/player.c','nds/sha256.c']
+    units=['paperos.c','apps.c','ime.c','input.c','keyboard.c','services.c','calendar.c','store_order.c','nds/player.c','nds/sha256.c']
     objects=[]
     for unit in units:
         output=OUT/(unit.replace('/','-')+'.o')
