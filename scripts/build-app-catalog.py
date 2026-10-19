@@ -25,7 +25,9 @@ def main():
     parser.add_argument('--release',default='store-2026-10-19');args=parser.parse_args()
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=True);assets=out/'assets';assets.mkdir(exist_ok=True)
     if out in args.signing_key.resolve().parents:raise ValueError('Signing key must stay outside publication directory')
-    base='https://github.com/ChrisPei/paperos-apps/releases/download/'+args.release+'/'
+    # Small app packages also live in Git, avoiding the separate github.com
+    # release redirect path on networks where that host is unreachable.
+    base='https://api.github.com/repos/ChrisPei/paperos-apps/contents/packages/'
     entries=[]
     for name in ['alarm','calendar','weather','mihome','muyu']:
         source=ROOT/('dist' if name=='muyu' else 'examples')/(name+'.papp')

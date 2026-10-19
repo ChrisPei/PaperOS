@@ -76,6 +76,9 @@ func (x *storeExtractor) add(name string, mode os.FileMode, size int64, reader i
 		return errors.New("安装包包含链接或特殊文件")
 	}
 	x.total += size
+	if err := storeFreeSpace(x.root, size+(4<<20)); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
 		return err
 	}

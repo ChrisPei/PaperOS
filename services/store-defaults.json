@@ -1,3 +1,3 @@
 [
-  {"id":"paperos","name":"PaperOS 官方应用","url":"https://raw.githubusercontent.com/ChrisPei/paperos-apps/main/catalog.json","format":"paperos","public_key":"CgXy+esu043BN6ZwFFU7U0bBPAP4JyrUsx07tiuBLMY=","enabled":true}
+  {"id":"paperos","name":"PaperOS 官方应用","url":"https://api.github.com/repos/ChrisPei/paperos-apps/contents/catalog.json","format":"paperos","public_key":"CgXy+esu043BN6ZwFFU7U0bBPAP4JyrUsx07tiuBLMY=","enabled":true}
 ]

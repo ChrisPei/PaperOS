@@ -111,13 +111,22 @@ func (s *Service) storeChangedLocked() {
 }
 func (s *Service) loadStore() {
 	s.store = &StoreState{Receipts: map[string]StoreReceipt{}, Revision: 1}
+	loaded := false
 	if data, e := os.ReadFile(s.storePath("state.json")); e == nil {
 		if json.Unmarshal(data, s.store) != nil {
 			s.store.Message = "应用商店缓存损坏，请刷新目录"
+		} else {
+			loaded = true
 		}
 	}
-	if len(s.store.Sources) == 0 {
+	if !loaded {
 		_ = json.Unmarshal(defaultStoreSources, &s.store.Sources)
+	}
+	for i := range s.store.Sources {
+		source := &s.store.Sources[i]
+		if source.ID == "paperos" && source.URL == "https://raw.githubusercontent.com/ChrisPei/paperos-apps/main/catalog.json" && source.PublicKey == "CgXy+esu043BN6ZwFFU7U0bBPAP4JyrUsx07tiuBLMY=" {
+			source.URL = "https://api.github.com/repos/ChrisPei/paperos-apps/contents/catalog.json"
+		}
 	}
 	if s.store.Receipts == nil {
 		s.store.Receipts = map[string]StoreReceipt{}
@@ -128,7 +137,8 @@ func (s *Service) loadStore() {
 		job.Message = "上次操作已中断，请重新下载；已安装版本保留"
 		s.store.Message = job.Message
 	}
-	s.store.Revision = 1
+	// Fit the native ARM unsigned long and avoid a stale UI after service restart.
+	s.store.Revision = uint64(time.Now().UnixNano()&0x7fffffff) + 1
 	s.store.Published = 0
 	s.store.Busy = false
 	s.recoverStorePlugins()
@@ -225,6 +235,25 @@ func (s *Service) syncStoreInstalledLocked() {
 		}
 	}
 	changed := false
+	for _, receipt := range s.store.Receipts {
+		if receipt.Kind != "koplugin" || receipt.Directory != s.storePluginDirectory(receipt.ID) {
+			continue
+		}
+		if st, e := os.Stat(filepath.Join(receipt.Directory, "main.lua")); e != nil || !st.Mode().IsRegular() {
+			continue
+		}
+		found := false
+		for _, entry := range s.store.Entries {
+			if entry.ID == receipt.ID {
+				found = true
+				break
+			}
+		}
+		if !found && len(s.store.Entries) < 256 {
+			s.store.Entries = append(s.store.Entries, StoreEntry{Key: receipt.Key, ID: receipt.ID, Name: receipt.Name, Version: receipt.Version, Kind: "koplugin", Installed: receipt.Version, SourceID: "installed", SourceName: receipt.Source})
+			changed = true
+		}
+	}
 	for i := range s.store.Entries {
 		entry := &s.store.Entries[i]
 		version := versions[entry.ID]
@@ -264,7 +293,7 @@ func (s *Service) storeHTTPClient() *http.Client {
 	if s.storeClient != nil {
 		return s.storeClient
 	}
-	return &http.Client{Timeout: 20 * time.Minute, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 12 * time.Second, ResponseHeaderTimeout: 20 * time.Second}, CheckRedirect: func(r *http.Request, via []*http.Request) error {
+	return &http.Client{Timeout: 20 * time.Minute, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, ForceAttemptHTTP2: true, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 12 * time.Second, ResponseHeaderTimeout: 20 * time.Second}, CheckRedirect: func(r *http.Request, via []*http.Request) error {
 		if len(via) > 8 {
 			return errors.New("下载重定向过多")
 		}
@@ -282,6 +311,7 @@ func (s *Service) storeFetch(ctx context.Context, address string, limit int64) (
 	}
 	request.Header.Set("User-Agent", "PaperOS-App-Store/1.0")
 	request.Header.Set("Accept", "application/json")
+	storeDownloadHeaders(request)
 	response, e := s.storeHTTPClient().Do(request)
 	if e != nil {
 		return nil, e
@@ -468,15 +498,34 @@ func (s *Service) storeCommandLocked(v url.Values) (bool, error) {
 		s.store.Message = "应用源已添加，点刷新获取目录"
 		s.storeChangedLocked()
 		return true, s.saveStoreLocked()
-	case "store-source-toggle":
+	case "store-source-toggle", "store-source-remove":
 		if s.store.Busy {
 			return fail("请等当前操作完成")
 		}
 		found := false
 		for i := range s.store.Sources {
 			if s.store.Sources[i].ID == v.Get("id") {
-				s.store.Sources[i].Enabled = !s.store.Sources[i].Enabled
+				if name == "store-source-remove" {
+					s.store.Sources = append(s.store.Sources[:i], s.store.Sources[i+1:]...)
+					kept := s.store.Entries[:0]
+					for _, entry := range s.store.Entries {
+						if entry.SourceID != v.Get("id") {
+							kept = append(kept, entry)
+						}
+					}
+					s.store.Entries = kept
+					if job := s.store.Job; job != nil && job.Entry.SourceID == v.Get("id") {
+						if job.Directory == s.storeJobDirectory(job.ID) {
+							go os.RemoveAll(job.Directory)
+						}
+						s.store.Job = nil
+					}
+					s.syncStoreInstalledLocked()
+				} else {
+					s.store.Sources[i].Enabled = !s.store.Sources[i].Enabled
+				}
 				found = true
+				break
 			}
 		}
 		if !found {
@@ -615,7 +664,7 @@ func (s *Service) downloadStore(id string) {
 		if e = os.MkdirAll(job.Directory, 0700); e != nil {
 			return e
 		}
-		if e = storeFreeSpace(job.Directory, 2*storeMaxExpanded+storeMaxArchive); e != nil {
+		if e = storeFreeSpace(job.Directory, 8<<20); e != nil {
 			return e
 		}
 		request, e := http.NewRequestWithContext(ctx, "GET", job.Entry.URL, nil)
@@ -623,6 +672,7 @@ func (s *Service) downloadStore(id string) {
 			return e
 		}
 		request.Header.Set("User-Agent", "PaperOS-App-Store/1.0")
+		storeDownloadHeaders(request)
 		response, e := s.storeHTTPClient().Do(request)
 		if e != nil {
 			return e
@@ -747,6 +797,9 @@ func (s *Service) downloadStore(id string) {
 	}
 	s.store.Busy = false
 	s.store.Cancel = nil
+	if s.store.Cancelled {
+		err = errors.New("下载已取消")
+	}
 	if err != nil {
 		s.store.Job.Phase = "error"
 		s.store.Job.Message = clean(err.Error(), 180)
@@ -923,4 +976,15 @@ func storeFreeSpace(directory string, needed int64) error {
 		return errors.New("存储空间不足，原版本保留；请清理下载缓存后再试")
 	}
 	return nil
+}
+
+func storeDownloadHeaders(request *http.Request) {
+	if request.URL.Hostname() == "api.github.com" {
+		if strings.Contains(request.URL.Path, "/contents/") {
+			request.Header.Set("Accept", "application/vnd.github.raw+json")
+		}
+		if strings.Contains(request.URL.Path, "/releases/assets/") {
+			request.Header.Set("Accept", "application/octet-stream")
+		}
+	}
 }

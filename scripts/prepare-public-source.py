@@ -16,7 +16,7 @@ def main():
     candidates=[]
     for directory in DIRECTORIES:
         candidates.extend(p for p in (ROOT/directory).rglob('*') if p.is_file())
-    candidates.extend(ROOT/n for n in ('README.md','APP-SDK.md','STORE.md','LICENSE','sources.lock.json','.gitignore','send-app.cmd'))
+    candidates.extend(ROOT/n for n in ('README.md','APP-SDK.md','STORE.md','PUBLISH.md','LICENSE','sources.lock.json','.gitignore','send-app.cmd'))
     candidates.extend(ROOT/'assets'/n for n in ('Noto-LICENSE.txt','solar-terms-sources.json','sources.json'))
     for src in sorted(candidates):
         rel=src.relative_to(ROOT)

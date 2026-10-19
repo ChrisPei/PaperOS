@@ -104,7 +104,7 @@ func parseStoreCatalog(data []byte, source StoreSource) ([]StoreEntry, error) {
 			}
 			var best *StoreEntry
 			for _, a := range artifacts {
-				e := StoreEntry{ID: "kpm." + storeSlug(id), Name: storeString(row, "name"), Description: storeString(row, "description"), Kind: "auto", Version: storeVersionJSON(a.Version), URL: a.URL, SHA256: a.SHA256, Platforms: a.Platforms, Reason: storePlatformReason(a.Platforms)}
+				e := StoreEntry{ID: id, Name: storeString(row, "name"), Description: storeString(row, "description"), Kind: "auto", Version: storeVersionJSON(a.Version), URL: a.URL, SHA256: a.SHA256, Platforms: a.Platforms, Reason: storePlatformReason(a.Platforms)}
 				if best == nil || (e.Reason == "" && best.Reason != "") || (e.Reason == best.Reason && storeVersionCompare(e.Version, best.Version) > 0) {
 					copy := e
 					best = &copy

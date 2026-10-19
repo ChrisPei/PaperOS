@@ -75,7 +75,8 @@ static void store_sources(App *a){
         PaperOSStoreSource *s=&u->catalog.sources[u->source_page*4+row];int y=164+96*row;
         box(30,y,540,86,170);text(44,y+8,24,s->name,390,0);text(44,y+49,17,s->error[0]?s->error:s->url,508,65);button(448,y+8,108,35,s->enabled?"已启用":"已停用",s->enabled);
     }
-    if(a->ui.message[0])text(30,560,20,a->ui.message,540,0);
+    if(u->source_selected[0])button(30,557,261,32,u->confirm_source_remove?"确认移除应用源":"移除所选应用源",false);
+    else if(a->ui.message[0])text(30,560,20,a->ui.message,540,0);
     button(30,606,261,38,"添加应用源",false);button(309,606,261,38,u->catalog.source_count>4?"下一页":"刷新目录",false);
     button(30,665,540,40,"返回应用商店",false);
 }
@@ -109,8 +110,10 @@ static bool store_tap(App *a,int x,int y){
     }
     if(a->screen==STORE_SOURCES){
         if(y>=665&&y<705)a->screen=APP_LIBRARY;
+        else if(y>=557&&y<589&&x>=30&&x<291&&u->source_selected[0]){if(!u->confirm_source_remove)u->confirm_source_remove=true;else{const char *args[]={"id",u->source_selected,NULL};dash_command(a,"store-source-remove",args);u->source_selected[0]=0;u->confirm_source_remove=false;}}
         else if(y>=606&&y<644){if(x<291)a->ui.input_task=12;else if(u->catalog.source_count>4)u->source_page=(u->source_page+1)%2;else dash_command(a,"store-refresh",NULL);}
         else if(y>=164&&y<548&&x>=448&&x<556&&(y-164)%96<45){int index=u->source_page*4+(y-164)/96;if(index<u->catalog.source_count){const char *args[]={"id",u->catalog.sources[index].id,NULL};dash_command(a,"store-source-toggle",args);}}
+        else if(y>=164&&y<548&&x>=30&&x<448){int index=u->source_page*4+(y-164)/96;if(index<u->catalog.source_count){copy_text(u->source_selected,sizeof(u->source_selected),u->catalog.sources[index].id);u->confirm_source_remove=false;}}
         return true;
     }
     return false;
