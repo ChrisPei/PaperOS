@@ -54,7 +54,8 @@
 
 typedef enum { HOME, AGENTS, CLOCK, NOTES, SYSTEM, APP_LIBRARY, APP_DETAILS, INPUT_METHOD,
     SETTINGS, WIDGETS, ALARM, ALARM_EDIT, TIME_SET, CALENDAR, WEATHER, MIHOME, NETWORK, LOCK_SETTINGS,
-    WALLPAPERS, WALLPAPER_PREVIEW, WALLPAPER_FULLSCREEN, WEATHER_LOCATION, WEATHER_COORDINATES, POWER_SETTINGS, BATTERY, TAILNET, MUYU, NETWORK_PROFILE, STORE_DETAILS, STORE_SOURCES, STORE_COMMUNITY
+    WALLPAPERS, WALLPAPER_PREVIEW, WALLPAPER_FULLSCREEN, WEATHER_LOCATION, WEATHER_COORDINATES, POWER_SETTINGS, BATTERY, TAILNET, MUYU, NETWORK_PROFILE, STORE_DETAILS, STORE_SOURCES, STORE_COMMUNITY,
+    STORE_HOME, APP_MANAGER, LOCAL_PACKAGES
 #ifdef PAPEROS_NDS
     ,NDS_GAME
 #endif
@@ -72,6 +73,9 @@ typedef struct {
     char url[512], token[256];
     PaperOSApp apps[PAPEROS_MAX_APPS], packages[PAPEROS_MAX_APPS];
     int app_count, package_count, app_page, home_page, selected_app, launch_app;
+    int drawer_page, manager_page, manager_tab;
+    Screen store_return;
+    bool store_management;
     bool show_packages, standalone, return_requested, confirm_remove, overlay_bridge, overlay_return;
     unsigned apps_installed, apps_removed, apps_launched, app_returns;
     char app_root[512], package_root[512], app_message[256];
@@ -185,10 +189,12 @@ static void button(int x,int y,int w,int h,const char *label,bool dark) {
 }
 static void store_input(App *a,int task);
 static void store_library(App *a);
+static void manager_open(App *a);
+static void drawer_swipe(App *a,int x0,int y0,int x1,int y1);
 #include "dashboard.inc"
 #include "muyu.inc"
 static void footer(App *a) {
-    if(a->standalone) { button(20,732,560,52,"返回主页",false); return; }
+    if(a->standalone) { button(20,732,560,52,"返回 PaperOS",false); return; }
     rect(0,724,600,1,120);
     const char *labels[]={"主页","应用","设置"};
     for(int i=0;i<3;i++) {
@@ -196,7 +202,8 @@ static void footer(App *a) {
         int icon_extent=i==1?28:30; /* Include the two-pixel outline. */
         dash_icon(i,center-icon_extent/2,748-icon_extent/2,28);
         text(center-text_width(labels[i],25)/2,769,25,labels[i],110,0);
-        bool active=i==0?a->screen==HOME:i==1?(a->screen==APP_LIBRARY || a->screen==APP_DETAILS || a->screen==STORE_DETAILS || a->screen==STORE_SOURCES || a->screen==STORE_COMMUNITY):a->screen==SETTINGS;
+        bool apps=a->screen==APP_LIBRARY||a->screen==STORE_HOME||a->screen==STORE_SOURCES||a->screen==STORE_COMMUNITY||(a->screen==STORE_DETAILS&&!a->store_management);
+        bool active=i==0?a->screen==HOME:i==1?apps:!apps&&a->screen!=HOME;
         if(active) rect(center-48,795,96,3,0);
     }
 }
@@ -394,46 +401,17 @@ static void draw_system(App *a) {
     text(30,y,20,"应用数据  /var/lib/paperos",540,70);
 }
 static void reload_apps(App *a) {
+    char selected[64]={0};
+    if(!a->show_packages&&a->selected_app>=0&&a->selected_app<a->app_count)copy_text(selected,sizeof(selected),a->apps[a->selected_app].id);
     a->app_count=paperos_apps_scan(a->app_root,true,a->apps,PAPEROS_MAX_APPS);
     a->package_count=paperos_apps_scan(a->package_root,false,a->packages,PAPEROS_MAX_APPS);
-    int count=a->show_packages?a->package_count:a->app_count;
-    if(a->app_page*4>=count) a->app_page=0;
+    if(a->app_page*5>=a->package_count) a->app_page=a->package_count?(a->package_count-1)/5:0;
     if(a->home_page*6>=a->app_count) a->home_page=0;
-}
-static void draw_library(App *a) {
-    if(!a->show_packages){store_library(a);return;}
-    header(a,"应用库","打开应用，退出后回到这里");
-    button(30,166,261,48,"已安装",!a->show_packages); button(309,166,261,48,"接收的应用包",a->show_packages);
-    PaperOSApp *items=a->show_packages?a->packages:a->apps;
-    int count=a->show_packages?a->package_count:a->app_count;
-    for(int row=0;row<4 && a->app_page*4+row<count;row++) {
-        PaperOSApp *item=&items[a->app_page*4+row]; int y=235+row*91;
-        box(30,y,540,80,175); text(47,y+9,27,item->name,490,0);
-        text(47,y+46,18,item->version,100,70); text(160,y+46,18,item->description,380,70);
-    }
-    if(!count) {
-        text(30,259,27,a->show_packages?"没有发现应用包":"还没有安装其他应用",540,0);
-        text(30,305,21,"应用包放入 USB 的 paperos/packages",540,70);
-    }
-    if(a->app_message[0]) text(30,619,20,a->app_message,540,30);
-    if(count>4) { button(30,659,110,43,"上页",false); button(158,659,110,43,"下页",false); }
-    button(435,659,135,43,"刷新",false);
-}
-static void draw_app_details(App *a) {
-    int count=a->show_packages?a->package_count:a->app_count;
-    if(a->selected_app<0 || a->selected_app>=count) { a->screen=APP_LIBRARY; draw_library(a); return; }
-    PaperOSApp *item=(a->show_packages?a->packages:a->apps)+a->selected_app;
-    bool installed=!a->show_packages;
-    for(int i=0;a->show_packages && i<a->app_count;i++) if(!strcmp(item->id,a->apps[i].id)) installed=true;
-    header(a,item->name,item->version); text(30,183,24,item->description,540,0);
-    text(30,238,20,installed?(a->show_packages?"已安装 · 可以更新":"已安装的应用"):"准备安装的应用",540,70);
-    button(30,333,261,82,a->show_packages?(installed?"更新":"安装"):"打开",true);
-    button(309,333,261,82,installed?(a->confirm_remove?"确认卸载":"卸载"):"返回列表",false);
-    text(30,453,21,"关闭应用后，启动器会自动接管屏幕。",540,65);
-    if(a->app_message[0]) text(30,527,22,a->app_message,540,0);
-    button(30,650,540,48,"返回应用库",false);
+    if(a->drawer_page*8>=a->app_count)a->drawer_page=a->app_count?(a->app_count-1)/8:0;
+    if(selected[0]){a->selected_app=-1;for(int i=0;i<a->app_count;i++)if(!strcmp(selected,a->apps[i].id))a->selected_app=i;}
 }
 #include "store.inc"
+#include "launcher.inc"
 #ifdef PAPEROS_NDS
 #include "nds/ui.inc"
 #endif
@@ -450,6 +428,8 @@ static void draw(App *a) {
         case HOME: draw_home(a); break; case AGENTS: draw_agents(a); break;
         case CLOCK: draw_clock(a); break; case NOTES: draw_notes(a); break; case SYSTEM: draw_system(a); break;
         case APP_LIBRARY: draw_library(a); break; case APP_DETAILS: draw_app_details(a); break;
+        case APP_MANAGER: manager_draw(a); break; case LOCAL_PACKAGES: packages_draw(a); break;
+        case STORE_HOME: store_library(a); break;
         case INPUT_METHOD: draw_input_method(a); break;
         case SETTINGS: dash_settings(a); break; case WIDGETS: dash_widgets(a); break;
         case ALARM: dash_alarm(a); break; case ALARM_EDIT: dash_alarm_edit(a); break;
@@ -513,11 +493,12 @@ static void tap(App *a,int x,int y) {
     if(a->screen==INPUT_METHOD) { paperos_keyboard_tap(&a->keyboard,x,y,getenv("PAPEROS_IME_HELPER")); a->dirty=true; return; }
     if(y<724 && dash_tap(a,x,y)) { a->dirty=true; return; }
     if(y<724 && store_tap(a,x,y)){a->dirty=true;return;}
+    if(y<724 && launcher_tap(a,x,y)){a->dirty=true;return;}
     if(a->screen==MUYU&&y<724){muyu_hit(a,x,y);return;}
     if(y>=724 && y<800) {
         if(a->standalone) { a->return_requested=true; a->dirty=true; return; }
         if(x<200) { reload_apps(a); a->screen=HOME; }
-        else if(x<400) { reload_apps(a); a->show_packages=false; a->screen=APP_LIBRARY; } else a->screen=SETTINGS;
+        else if(x<400) { reload_apps(a); a->show_packages=false; a->app_message[0]=0; a->screen=APP_LIBRARY; } else a->screen=SETTINGS;
     } else if(a->screen==HOME) {
         if(y>=244 && y<304) a->screen=x<300?AGENTS:SYSTEM;
         else if(y>=365 && y<637 && x>=30 && x<570) {
@@ -527,38 +508,6 @@ static void tap(App *a,int x,int y) {
             if(a->app_count>6 && x<130 && a->home_page>0) a->home_page--;
             else if(a->app_count>6 && x>=470 && (a->home_page+1)*6<a->app_count) a->home_page++;
             else if(a->app_count<=6 || (x>=148 && x<452)) { reload_apps(a); a->show_packages=false; a->screen=APP_LIBRARY; }
-        }
-    } else if(a->screen==APP_LIBRARY) {
-        if(y>=166 && y<214) { a->show_packages=x>=300; a->app_page=0; a->app_message[0]=0; reload_apps(a); }
-        else if(y>=235 && y<599) {
-            int row=(y-235)/91,count=a->show_packages?a->package_count:a->app_count;
-            if((y-235)%91<80 && a->app_page*4+row<count) { a->selected_app=a->app_page*4+row; a->confirm_remove=false; a->app_message[0]=0; a->screen=APP_DETAILS; }
-        } else if(y>=659 && y<702) {
-            int count=a->show_packages?a->package_count:a->app_count;
-            if(x>=30 && x<140 && a->app_page>0) a->app_page--;
-            else if(x>=158 && x<268 && (a->app_page+1)*4<count) a->app_page++;
-            else if(x>=435) reload_apps(a);
-        }
-    } else if(a->screen==APP_DETAILS) {
-        if(y>=650 && y<698) { a->screen=APP_LIBRARY; a->confirm_remove=false; }
-        else if(y>=333 && y<415 && a->selected_app>=0) {
-            if(x>=30 && x<291) {
-                if(a->show_packages && a->selected_app<a->package_count) {
-                    if(!paperos_app_install(a->app_root,a->packages[a->selected_app].directory,a->app_message,sizeof(a->app_message))) {
-                        a->apps_installed++; a->show_packages=false; reload_apps(a); a->screen=APP_LIBRARY;
-                    }
-                } else if(!a->show_packages && a->selected_app<a->app_count) a->launch_app=a->selected_app;
-            } else if(x>=309 && x<570) {
-                int count=a->show_packages?a->package_count:a->app_count;
-                if(a->selected_app<count) {
-                    PaperOSApp *item=(a->show_packages?a->packages:a->apps)+a->selected_app;
-                    bool installed=!a->show_packages;
-                    for(int i=0;a->show_packages && i<a->app_count;i++) if(!strcmp(item->id,a->apps[i].id)) installed=true;
-                    if(!installed) { a->screen=APP_LIBRARY; a->dirty=true; return; }
-                    if(!a->confirm_remove) a->confirm_remove=true;
-                    else if(!paperos_app_remove(a->app_root,item->id,a->app_message,sizeof(a->app_message))) { a->apps_removed++; reload_apps(a); a->screen=APP_LIBRARY; a->confirm_remove=false; }
-                }
-            }
         }
     } else if(a->screen==AGENTS && y>=657 && y<701) {
         if(x>=360 && x<456 && a->page>0) a->page--;
@@ -699,6 +648,9 @@ static Screen parse_screen(const char *str) {
     if(!strcmp(str,"notes")) return NOTES;
     if(!strcmp(str,"system")) return SYSTEM;
     if(!strcmp(str,"apps")) return APP_LIBRARY;
+    if(!strcmp(str,"store")) return STORE_HOME;
+    if(!strcmp(str,"app-manager")) return APP_MANAGER;
+    if(!strcmp(str,"local-packages")) return LOCAL_PACKAGES;
     if(!strcmp(str,"settings")) return SETTINGS;
     if(!strcmp(str,"widgets")) return WIDGETS;
     if(!strcmp(str,"alarm")) return ALARM;
@@ -761,7 +713,7 @@ int main(int argc,char **argv) {
     env=getenv("PAPEROS_PACKAGES"); copy_text(app.package_root,sizeof(app.package_root),env?env:"/mnt/us/paperos/packages");
     int taps[32][4],tap_count=0;
     for(int i=1;i<argc;i++) {
-        if(!strcmp(argv[i],"--help")) { puts("PaperOS native e-ink launcher\n--font FILE --render FILE.pgm --screen home|agents|clock|notes|system|apps|keyboard\n--feed FILE.tsv --url http://HOST:8086/v1/agents.tsv --note FILE --tap X Y\n--app-root DIR --packages DIR --install DIR --remove ID --list-apps --run-app ID\n--standalone (return button for a child application)\n--run-seconds 1..600 --report FILE.json (live device validation)\n--input-method --input-fd N (system input worker)"); return 0; }
+        if(!strcmp(argv[i],"--help")) { puts("PaperOS native e-ink launcher\n--font FILE --render FILE.pgm --screen home|apps|store|settings|app-manager|local-packages\n--feed FILE.tsv --url http://HOST:8086/v1/agents.tsv --note FILE --tap X Y\n--app-root DIR --packages DIR --install DIR --remove ID --list-apps --run-app ID\n--standalone (return button for a child application)\n--run-seconds 1..600 --report FILE.json (live device validation)\n--input-method --input-fd N (system input worker)"); return 0; }
         if(!strcmp(argv[i],"--list-apps")) { list_apps=true; continue; }
         if(!strcmp(argv[i],"--standalone")) { app.standalone=true; continue; }
         if(!strcmp(argv[i],"--system-overlay")) { system_overlay_only=true; app.overlay_bridge=true; app.standalone=true; continue; }
@@ -850,7 +802,7 @@ int main(int argc,char **argv) {
     if(app.screen==INPUT_METHOD) paperos_keyboard_open(&app.keyboard,&input_request,getenv("PAPEROS_IME_HELPER"));
     memset(&input_request,0,sizeof(input_request));
     for(int i=0;i<tap_count;i++) {
-        if(taps[i][1]-taps[i][3]>=80) dash_swipe(&app,taps[i][0],taps[i][1],taps[i][2],taps[i][3]);
+        if(abs(taps[i][0]-taps[i][2])>=80||abs(taps[i][1]-taps[i][3])>=80) { dash_swipe(&app,taps[i][0],taps[i][1],taps[i][2],taps[i][3]);drawer_swipe(&app,taps[i][0],taps[i][1],taps[i][2],taps[i][3]); }
         else tap(&app,taps[i][2],taps[i][3]);
         if(app.input_requested && render) edit_note(&app);
         if(app.ui.input_task && render) { if(app.ui.allow_commands) dash_input(&app); else app.ui.input_task=0; }
@@ -881,7 +833,7 @@ int main(int argc,char **argv) {
     struct input_absinfo ax={0},ay={0}; bool mt=false; int input=touch_open(getenv("PAPEROS_INPUT_DEVICE"),&ax,&ay,&mt);
     fprintf(stderr,"PaperOS live display: %ux%u; touch=%s mt=%d x=%d..%d y=%d..%d\n",state.screen_width,state.screen_height,input>=0?"present":"missing",mt,ax.minimum,ax.maximum,ay.minimum,ay.maximum);
     int raw_x=0,raw_y=0,start_x=0,start_y=0; touch_position(input,mt,&ax,&ay,&raw_x,&raw_y); bool released=false,touch_started=false,tracking=false,discard_touch=false,painted_lock=false; int frames=0; time_t last_poll=0,last_minute=0;
-    unsigned touch_events=0,screen_mask=0,display_errors=0;
+    unsigned touch_events=0,display_errors=0;uint64_t screen_mask=0;
 #ifdef PAPEROS_NDS
     double nds_panel_at=0;bool nds_was_blocked=false;int nds_input_slot=0;
 #endif
@@ -896,6 +848,8 @@ int main(int argc,char **argv) {
             touch_position(input,mt,&ax,&ay,&raw_x,&raw_y); released=false;tracking=false;touch_started=false; frames=0; app.dirty=true;
         }
         if(!app.ui.services.locked && app.launch_app>=0 && app.launch_app<app.app_count) {
+            draw(&app);cfg.is_flashing=false;
+            if(fbink_print_raw_data(fb,pixels,W,H,sizeof(pixels),0,0,&cfg)<0)display_errors++;
             if(input>=0) close(input);
             input=-1;
             int lock=-1; pid_t child=paperos_app_start(app.app_root,&app.apps[app.launch_app],launcher,font_path,&lock,app.app_message,sizeof(app.app_message));
@@ -904,7 +858,7 @@ int main(int argc,char **argv) {
                 app.apps_launched++; fprintf(stderr,"PaperOS application started: pid=%ld\n",(long)child);
                 int status=wait_application(child); close(lock); app.app_returns++;
                 fprintf(stderr,"PaperOS application returned: status=%d\n",status);
-                snprintf(app.app_message,sizeof(app.app_message),"应用已退出（%d）",status);
+                if(status)copy_text(app.app_message,sizeof(app.app_message),"应用意外退出，可以再次打开。");else app.app_message[0]=0;
             }
             fbink_init(fb,&cfg); input=touch_open(getenv("PAPEROS_INPUT_DEVICE"),&ax,&ay,&mt);
             reload_apps(&app); touch_position(input,mt,&ax,&ay,&raw_x,&raw_y); released=false;tracking=false;touch_started=false; frames=0; app.dirty=true;
@@ -946,7 +900,7 @@ int main(int argc,char **argv) {
             cfg.wfm_mode=(manual||transition||app.ui.services.locked||photo_screen)?WFM_GC16:WFM_AUTO;
             int black=0,white=0;
             if(clean_lock){black=display_solid_phase(fb,0,&cfg);white=display_solid_phase(fb,255,&cfg);}
-            screen_mask|=1U<<app.screen;
+            screen_mask|=UINT64_C(1)<<app.screen;
             int rendered=fbink_print_raw_data(fb,pixels,W,H,sizeof(pixels),0,0,&cfg);
             if(rendered<0) { display_errors++; fprintf(stderr,"Display update failed\n"); }
             else if(frames==1) fprintf(stderr,"PaperOS interface ready\n");
@@ -1010,7 +964,9 @@ int main(int argc,char **argv) {
                 if(discard_touch) { /* Consume a contact held across a lock transition. */ }
                 else if(app.ui.services.locked && !app.ui.services.alert_id[0]) {
                     if(app.overlay_bridge&&tracking&&abs(y-start_y)<30&&abs(x-start_x)<30)tap(&app,x,y);
-                    else if(tracking)dash_swipe(&app,start_x,start_y,x,y);
+                    else if(tracking){dash_swipe(&app,start_x,start_y,x,y);drawer_swipe(&app,start_x,start_y,x,y);}
+                } else if(tracking&&(abs(x-start_x)>=80||abs(y-start_y)>=80)){
+                    dash_swipe(&app,start_x,start_y,x,y);drawer_swipe(&app,start_x,start_y,x,y);
                 } else tap(&app,x,y);
                 released=false;tracking=false;discard_touch=false;
                 if(report) fprintf(stderr,"PaperOS touch: x=%d y=%d page=%d confirm=%d message=%s\n",x,y,app.screen,app.confirm_remove,app.app_message);
@@ -1023,7 +979,7 @@ int main(int argc,char **argv) {
         FILE *record=fopen(report,"w");
         if(!record) { perror(report); exit_status=2; }
         else {
-            fprintf(record,"{\"width\":%u,\"height\":%u,\"touch_present\":%s,\"multitouch\":%s,\"x_min\":%d,\"x_max\":%d,\"y_min\":%d,\"y_max\":%d,\"frames\":%d,\"display_errors\":%u,\"touch_events\":%u,\"screens_seen\":%u,\"note_saved\":%s,\"apps_installed\":%u,\"apps_removed\":%u,\"apps_launched\":%u,\"app_returns\":%u}\n",state.screen_width,state.screen_height,input>=0?"true":"false",mt?"true":"false",ax.minimum,ax.maximum,ay.minimum,ay.maximum,frames,display_errors,touch_events,screen_mask,app.note_saved?"true":"false",app.apps_installed,app.apps_removed,app.apps_launched,app.app_returns);
+            fprintf(record,"{\"width\":%u,\"height\":%u,\"touch_present\":%s,\"multitouch\":%s,\"x_min\":%d,\"x_max\":%d,\"y_min\":%d,\"y_max\":%d,\"frames\":%d,\"display_errors\":%u,\"touch_events\":%u,\"screens_seen\":%llu,\"note_saved\":%s,\"apps_installed\":%u,\"apps_removed\":%u,\"apps_launched\":%u,\"app_returns\":%u}\n",state.screen_width,state.screen_height,input>=0?"true":"false",mt?"true":"false",ax.minimum,ax.maximum,ay.minimum,ay.maximum,frames,display_errors,touch_events,(unsigned long long)screen_mask,app.note_saved?"true":"false",app.apps_installed,app.apps_removed,app.apps_launched,app.app_returns);
             if(fclose(record)) exit_status=2;
         }
     }

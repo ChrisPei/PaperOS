@@ -257,13 +257,13 @@ class DashboardTests(unittest.TestCase):
         self.assertNotEqual(config['Timer']['State'], 'running')
 
     def test_time_settings_toggle_persists_and_offline_sync_preserves_manual_mode(self):
-        automatic = self.render('settings', '--tap', '160', '440')
+        automatic = self.render('settings', '--tap', '160', '527')
         self.assertIn('\nclock\ttrue\t', self.state.read_text())
-        manual = self.render('settings', '--tap', '160', '440', '--tap', '535', '182')
+        manual = self.render('settings', '--tap', '160', '527', '--tap', '535', '182')
         config = json.loads((self.directory / 'data/state.json').read_text())
         self.assertFalse(config['Clock']['Automatic'])
         self.assertTrue(automatic != manual)
-        failed = self.render('settings', '--tap', '160', '440', '--tap', '485', '265')
+        failed = self.render('settings', '--tap', '160', '527', '--tap', '485', '265')
         self.assertTrue(failed != manual)
         config = json.loads((self.directory / 'data/state.json').read_text())
         self.assertFalse(config['Clock']['Automatic'])
@@ -287,11 +287,11 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(note.read_text(), '锁屏前的未保存文字')
 
     def test_settings_lock_and_idle_time_use_actual_service(self):
-        self.render('settings', '--tap', '180', '540', '--tap', '450', '650')
+        self.render('settings', '--tap', '180', '595', '--tap', '450', '650')
         self.assertIn('\nlock\ttrue\t', self.state.read_text())
         self.render('home', '--swipe', '300', '710', '310', '450')
         self.assertIn('\nlock\tfalse\t', self.state.read_text())
-        self.render('settings', '--tap', '180', '540', '--tap', '175', '215')
+        self.render('settings', '--tap', '180', '595', '--tap', '175', '215')
         config = json.loads((self.directory / 'data/state.json').read_text())
         self.assertEqual(config['Lock']['IdleSeconds'], 60)
 

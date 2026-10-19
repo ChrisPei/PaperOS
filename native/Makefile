@@ -14,7 +14,7 @@ LDLIBS += -lm
 
 all: $(OUT)/paperos $(OUT)/paperos-inputd $(OUT)/paperos-input $(OUT)/libpaperos-input.a
 
-$(OUT)/paperos: paperos.c muyu.inc muyu.h store.inc store.h store_order.c dashboard.inc wallpaper.inc weather.inc battery.inc mihome.inc dashboard.h services.c services.h calendar.c calendar.h lunar-data.h solar-terms-data.h apps.c apps.h ime.c ime.h input.c input.h keyboard.c keyboard.h $(ROOT)/assets/stb_truetype.h $(FBINK_DEP)
+$(OUT)/paperos: paperos.c launcher.inc muyu.inc muyu.h store.inc store.h store_order.c dashboard.inc wallpaper.inc weather.inc battery.inc mihome.inc dashboard.h services.c services.h calendar.c calendar.h lunar-data.h solar-terms-data.h apps.c apps.h ime.c ime.h input.c input.h keyboard.c keyboard.h $(ROOT)/assets/stb_truetype.h $(FBINK_DEP)
 	mkdir -p $(OUT)
 	$(CC) $(CPPFLAGS) $(CFLAGS) paperos.c apps.c ime.c input.c keyboard.c services.c calendar.c store_order.c -o $@ $(LDFLAGS) $(LDLIBS)
 

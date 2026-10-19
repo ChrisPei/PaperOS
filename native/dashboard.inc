@@ -120,6 +120,7 @@ static void dash_status(App *a) {
     if(charging){unsigned char ink=capacity>=65?255:0;dash_line(551,19,547,25,ink);dash_line(547,25,553,25,ink);dash_line(553,25,549,31,ink);}
 }
 static void dash_header(App *a,const char *title,const char *back) {
+    if(a->standalone&&!strcmp(back,"主页"))back="‹ 返回";
     dash_status(a); text(19,57,29,back,160,0);
     text((W-text_width(title,38))/2,52,38,title,360,0); rect(18,104,564,1,160);
 }
@@ -404,10 +405,10 @@ static void dash_settings(App *a) {
     text(22,143,32,"Wi-Fi",500,0);text(22,185,23,s->connected?s->ssid:s->wifi?"未连接":"已关闭",430,65);text(550,156,32,"›",40,0);rect(20,222,560,1,190);
     text(22,241,31,"飞行模式",420,0);dash_toggle(505,245,s->airplane);rect(20,300,560,1,190);
     text(22,320,31,"接收应用",420,0);text(22,358,23,s->receiving?"已开启 · 10分钟内有效":"Wi-Fi 或 Tailscale · 屏幕确认",465,65);dash_toggle(505,325,s->receiving);rect(20,399,560,1,190);
-    const char *labels[]={"设置时间","首页组件","锁屏与壁纸","系统信息","电量与续航","Tailscale"};
-    for(int i=0;i<6;i++){int y=412+i*48;text(22,y,27,labels[i],510,0);text(550,y,27,"›",40,0);rect(20,y+44,560,1,190);}
+    text(22,416,30,"应用管理",460,0);text(22,454,21,"版本、更新、卸载和本地应用包",500,65);text(550,432,30,"›",40,0);rect(20,486,560,1,190);
+    const char *labels[]={"设置时间","首页组件","锁屏与壁纸","电量与续航","Tailscale","系统信息"};
+    for(int i=0;i<6;i++){int x=20+(i%2)*286,y=500+(i/2)*68;button(x,y,274,54,labels[i],false);}
     if(a->ui.message[0])text(22,704,16,a->ui.message,550,0);
-    else if(s->connected){char b[180];if(s->tailnet_connected)snprintf(b,sizeof(b),"Wi-Fi %s · Tailscale %s",s->ip,s->tailnet_ip);else snprintf(b,sizeof(b),"Wi-Fi %s · 接收端口 8765",s->ip);text(22,704,16,b,550,65);}
 }
 static void dash_tailnet(App *a) {
     PaperOSServices *s=&a->ui.services;char b[160];dash_header(a,"Tailscale","设置");
@@ -613,7 +614,8 @@ static bool dash_tap(App *a,int x,int y) {
         if(y>=130&&y<222){a->screen=NETWORK;dash_command(a,"network-scan",NULL);}
         else if(y>=230&&y<300){const char *args[]={"enabled",s->airplane?"false":"true",NULL};dash_command(a,"airplane",args);}
         else if(y>=313&&y<399){const char *args[]={"enabled",s->receiving?"false":"true",NULL};dash_command(a,"receive-enable",args);if(u->message[0])copy_text(s->net_message,sizeof(s->net_message),u->message);}
-        else if(y>=412&&y<700){int row=(y-412)/48;if(row==0)dash_begin_time(a);if(row==1){a->screen=WIDGETS;u->adding_widget=false;}if(row==2)a->screen=LOCK_SETTINGS;if(row==3)a->screen=SYSTEM;if(row==4)a->screen=BATTERY;if(row==5){a->screen=TAILNET;u->message[0]=0;dash_command(a,"tailnet-refresh",NULL);}}
+        else if(y>=408&&y<486)manager_open(a);
+        else if(y>=500&&y<690&&(y-500)%68<54&&x>=20&&x<580&&(x-20)%286<274){int index=((y-500)/68)*2+(x-20)/286;if(index==0)dash_begin_time(a);if(index==1){a->screen=WIDGETS;u->adding_widget=false;}if(index==2)a->screen=LOCK_SETTINGS;if(index==3)a->screen=BATTERY;if(index==4){a->screen=TAILNET;u->message[0]=0;dash_command(a,"tailnet-refresh",NULL);}if(index==5)a->screen=SYSTEM;}
         return true;
     }
     if(a->screen==TAILNET){
