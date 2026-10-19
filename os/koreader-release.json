@@ -1,0 +1,17 @@
+{
+  "upstream_version": "2026.07.1",
+  "upstream_commit": "9192014d8bd82a91dc1012473be0f238dedfdb54",
+  "upstream_archive_sha256": "ea1f575c54492a2c679d128b7f3210fd7d6a87e5f5a1ff1f7a7fe2080ff68f86",
+  "port_version": "2026.07.1.1",
+  "release_tag": "koreader-2026.07.1.1",
+  "gnu_runtime_packages": {
+    "libc6-armel-cross": "2.39-0ubuntu8cross1",
+    "libgcc-s1-armel-cross": "14.2.0-4ubuntu2~24.04cross1"
+  },
+  "gnu_sources": [
+    {"name":"glibc","version":"2.39-0ubuntu8","pool":"main/g/glibc"},
+    {"name":"gcc-14","version":"14.2.0-4ubuntu2~24.04","pool":"main/g/gcc-14","snapshot":"20241016T000000Z"},
+    {"name":"cross-toolchain-base","version":"68ubuntu5","pool":"universe/c/cross-toolchain-base","snapshot":"20240426T000000Z"},
+    {"name":"gcc-14-cross-ports","version":"5ubuntu4.2","pool":"universe/g/gcc-14-cross-ports","snapshot":"20241016T000000Z"}
+  ]
+}

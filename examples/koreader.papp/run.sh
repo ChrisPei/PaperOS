@@ -4,18 +4,24 @@ APP=${PAPEROS_APP_DIR:?}
 DATA=${PAPEROS_DATA_DIR:?}
 CACHE=/mnt/us/paperos/app-cache/org.paperos.koreader
 MOUNT=/run/paperos/koreader-runtime
-mkdir -p "$DATA" "$CACHE" "$MOUNT" /mnt/us/documents/Reading-Samples
+mkdir -p "$DATA" "$DATA/plugins" "$CACHE" "$MOUNT" /mnt/us/documents/Reading-Samples
 if [ -f "$DATA/session.log" ]; then
     tail -c 262144 "$DATA/session.log" > "$DATA/previous-session.log"
 fi
 exec >"$DATA/session.log" 2>&1
 EXPECTED=$(cat "$APP/runtime.sha256")
+case "$EXPECTED" in *[!0-9a-f]*|"") echo "Invalid KOReader runtime digest"; exit 2;; esac
+[ "${#EXPECTED}" -eq 64 ] || exit 2
+[ -x "$APP/paperos-overlay" ] || { echo "PaperOS overlay helper is not executable"; exit 2; }
 IMAGE="$CACHE/$EXPECTED.ext3"
 if [ ! -f "$IMAGE" ]; then
-    gzip -dc "$APP/runtime.ext3.gz" > "$IMAGE.partial"
-    ACTUAL=$(sha256sum "$IMAGE.partial"); ACTUAL=${ACTUAL%% *}
-    if [ "$ACTUAL" != "$EXPECTED" ]; then rm -f "$IMAGE.partial"; exit 2; fi
-    mv "$IMAGE.partial" "$IMAGE"
+    PARTIAL="$IMAGE.partial.$$"
+    trap 'rm -f "$PARTIAL"' EXIT
+    gzip -dc "$APP/runtime.ext3.gz" > "$PARTIAL"
+    ACTUAL=$(sha256sum "$PARTIAL"); ACTUAL=${ACTUAL%% *}
+    if [ "$ACTUAL" != "$EXPECTED" ]; then echo "KOReader runtime integrity check failed"; exit 2; fi
+    mv "$PARTIAL" "$IMAGE"
+    trap - EXIT
 fi
 ACTUAL=$(sha256sum "$IMAGE"); ACTUAL=${ACTUAL%% *}
 if [ "$ACTUAL" != "$EXPECTED" ]; then echo "KOReader runtime integrity check failed"; exit 2; fi

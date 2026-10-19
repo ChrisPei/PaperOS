@@ -1,9 +1,27 @@
 # KOReader on PaperOS KT3
 
 The application is the official KOReader **kindlepw2 v2026.07.1** release,
+packaged as PaperOS port **2026.07.1.1**,
 installed as `org.paperos.koreader`. It runs locally on the independent
 PaperOS userspace; the vendor framework, KUAL and original Kindle UI are not
 runtime requirements.
+
+## Install and update from the store
+
+Open **应用 → 发现 → KOReader**, download, then confirm installation on the Kindle.
+The entry is the main reader, separate from the KOReader plugin store.
+Existing installations retain `org.paperos.koreader`; the new port revision appears
+under **更新**. Updates retain the profile, plugins, reading history and annotations.
+Exit KOReader before updating it. The in-reader upstream OTA updater stays disabled
+because the runtime image is read-only; update the complete verified `.papp` instead.
+
+The app archive is about 41 MiB, below the native 64 MiB limit. It is delivered
+through the public GitHub Release asset API with `application/octet-stream`,
+without a user token. The signed catalog pins the exact archive SHA-256.
+The public release also provides the corresponding source bundle:
+<https://github.com/ChrisPei/paperos-apps/releases/tag/koreader-2026.07.1.1>.
+This includes pinned KOReader/submodules, verified Kindle dependency sources,
+GNU runtime source packages, and the complete native PaperOS overlay source.
 
 Build with `bash scripts/build-koreader-overlay.sh` followed by
 `python3 scripts/build-koreader.py` inside Ubuntu-24.04 WSL. The builder verifies

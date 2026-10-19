@@ -13,12 +13,20 @@
 已经发布的同版本包不覆盖；改动代码后发布新的版本。
 
 目前小应用包放在应用仓库的 `packages/`；客户端使用 GitHub 官方 Contents API 的 raw
-媒体类型，避免部分网络无法访问 Release 跳转入口。大型对应源码包放在 Releases。
+媒体类型。KOReader 主程序和对应源码包放在 Releases，程序使用 Release asset API 的
+`application/octet-stream` 下载，避免部分网络无法访问网页下载跳转入口。
 GitHub 匿名 API 有请求限额；触发限额或网络失败时可继续使用已安装应用和缓存目录，稍后重试。
 不能通过关闭 TLS 校验或跳过目录签名来处理网络失败。
 
 先上传新版本包，确认 URL 和 SHA-256，再提交 `catalog.json`、`catalog.json.sig`。
 `testing/` 是独立 SDK 验证源，不进入默认目录。测试包也需要在 Kindle 本机确认安装。
+
+KOReader 的上游版本、PaperOS 移植版本及 GNU 运行库版本在 `os/koreader-release.json` 固定。
+修改移植代码需增加四段式版本的最后一段；升级上游需先校验新版本、更新源码与库版本的固定记录。
+先运行 `build-koreader-overlay.sh`、`build-koreader.py` 和
+`build-app-catalog.py --packages-only` 生成程序包，准备同版本的对应源码包，再上传到固定记录中的
+Release tag。随后正常运行目录生成器，它会解析该 Release 的程序 asset API 地址并签名。
+完整流程不能只更新目录版本号，也不能覆盖已经发布的同版本文件。
 
 仅源码公开，没有通用刷机镜像。当前显示、触控、休眠和启动适配验证针对 KT3。
 原厂固件、个人备份、商业游戏、私钥、家庭中枢凭据与用户数据均不发布。
