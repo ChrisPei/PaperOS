@@ -6,7 +6,9 @@ separately from the small on-device application. No device files are consulted.
 from pathlib import Path
 import argparse,configparser,hashlib,io,json,os,shutil,tarfile,urllib.request
 
-COMMIT='9192014d8bd82a91dc1012473be0f238dedfdb54'
+ROOT=Path(__file__).resolve().parents[1]
+RELEASE=json.loads((ROOT/'os/koreader-release.json').read_text())
+COMMIT=RELEASE['upstream_commit']
 def fetch(url):
     request=urllib.request.Request(url,headers={'User-Agent':'PaperOS-corresponding-source'})
     with urllib.request.urlopen(request,timeout=90) as response:return response.read()
@@ -44,6 +46,6 @@ def main():
             child=url.removeprefix('https://github.com/').removesuffix('.git')
             materialize(child,links[path],target/path)
     materialize('koreader/koreader',COMMIT,project)
-    (work/'source-lock.json').write_text(json.dumps({'upstream':'v2026.07.1','modules':receipts,'omitted_non_runtime':['test','platform/android/luajit-launcher']},indent=2)+'\n')
+    (work/'source-lock.json').write_text(json.dumps({'upstream':'v'+RELEASE['upstream_version'],'modules':receipts,'omitted_non_runtime':['test','platform/android/luajit-launcher']},indent=2)+'\n')
     print(json.dumps({'source':str(project),'modules':len(receipts)}),flush=True)
 if __name__=='__main__':main()
